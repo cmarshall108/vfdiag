@@ -1035,6 +1035,17 @@ def cmd_ev_bleed(args: argparse.Namespace) -> int:
                 )
 
         finally:
+            # Guarantee we restore ECU default state and default session on exit to prevent "bricking" or stuck modes
+            try:
+                print("\n[Safety Clean-up] Automatically restoring default ECU control session on thermal nodes...")
+                stop_packet = bytes([0x2F, 0x1F, 0x01, 0x00])
+                for target_node in (0x7E1, 0x7E2):
+                    # Send ReturnControlToECU command
+                    _request_and_collect(d, channel, can_id=target_node, payload=stop_packet, expected_resp_sid=0x6F, timeout_ms=500, verbose=False)
+                    # Force return to Default Session (Service 0x10 01)
+                    _request_and_collect(d, channel, can_id=target_node, payload=bytes([0x10, 0x01]), expected_resp_sid=0x50, timeout_ms=500, verbose=False)
+            except Exception:
+                pass
             d.disconnect(channel)
     
     print("\n✅ Coolant loop air bleeding sequence completed successfully.")

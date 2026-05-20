@@ -14,7 +14,7 @@ try:
         QApplication, QMainWindow, QWidget, QTabWidget, QVBoxLayout, QHBoxLayout,
         QPushButton, QLabel, QLineEdit, QCheckBox, QPlainTextEdit, QGroupBox,
         QFormLayout, QTableWidget, QTableWidgetItem, QHeaderView, QMessageBox,
-        QProgressBar, QSplitter, QFileDialog, QComboBox
+        QProgressBar, QSplitter, QFileDialog, QComboBox, QStyle
     )
 except ImportError:
     # We will guide the user to install PyQt5 if it is missing
@@ -24,6 +24,7 @@ except ImportError:
     class QWidget: pass
     class QObject: pass
     class QThread: pass
+    class QStyle: pass
 
 import j2534
 import vf_obd
@@ -188,6 +189,7 @@ class VinFastDiagGUI(QMainWindow):
                 border-radius: 4px;
                 padding: 6px 14px;
                 font-weight: bold;
+                min-height: 24px;
             }
             QPushButton:hover {
                 background-color: #0099ff;
@@ -353,7 +355,8 @@ class VinFastDiagGUI(QMainWindow):
         )
         layout.addWidget(lbl)
         
-        self.btn_run_doctor = QPushButton("🚀 Run Master Hardware Doctor Diagnostic")
+        self.btn_run_doctor = QPushButton(" Run Master Hardware Doctor Diagnostic")
+        self.btn_run_doctor.setIcon(self.style().standardIcon(QStyle.SP_ComputerIcon))
         self.btn_run_doctor.setMinimumHeight(45)
         self.btn_run_doctor.setStyleSheet("font-size: 15px;")
         self.btn_run_doctor.clicked.connect(lambda: self._execute_command("doctor"))
@@ -368,13 +371,16 @@ class VinFastDiagGUI(QMainWindow):
         layout.addWidget(QLabel("<h3>Vehicle Deep Parameter Metadata Retrieval (Mode 09)</h3>"))
         
         row = QHBoxLayout()
-        self.btn_get_vin = QPushButton("🚗 Read VIN (PID 02)")
+        self.btn_get_vin = QPushButton(" Read VIN (PID 02)")
+        self.btn_get_vin.setIcon(self.style().standardIcon(QStyle.SP_DriveHDIcon))
         self.btn_get_vin.clicked.connect(lambda: self._execute_command("vin"))
         
-        self.btn_get_ecu = QPushButton("🔍 Scan Online ECUs (PIDs 0A & 04)")
+        self.btn_get_ecu = QPushButton(" Scan Online ECUs (PIDs 0A & 04)")
+        self.btn_get_ecu.setIcon(self.style().standardIcon(QStyle.SP_FileDialogDetailedView))
         self.btn_get_ecu.clicked.connect(lambda: self._execute_command("ecu"))
         
-        self.btn_get_info = QPushButton("📋 Get Deep Info (Serials/CALID/CVN)")
+        self.btn_get_info = QPushButton(" Get Deep Info (Serials/CALID/CVN)")
+        self.btn_get_info.setIcon(self.style().standardIcon(QStyle.SP_FileDialogListView))
         self.btn_get_info.clicked.connect(lambda: self._execute_command("info"))
         
         row.addWidget(self.btn_get_vin)
@@ -413,7 +419,8 @@ class VinFastDiagGUI(QMainWindow):
         chks.addWidget(self.chk_permanent)
         scan_lay.addLayout(chks)
         
-        self.btn_scan_dtcs = QPushButton("🔍 Fetch DTCs From Online Nodes")
+        self.btn_scan_dtcs = QPushButton(" Search / Fetch DTCs From Online Nodes")
+        self.btn_scan_dtcs.setIcon(self.style().standardIcon(QStyle.SP_MessageBoxQuestion))
         self.btn_scan_dtcs.clicked.connect(self._run_scan_dtcs)
         scan_lay.addWidget(self.btn_scan_dtcs)
         
@@ -422,11 +429,13 @@ class VinFastDiagGUI(QMainWindow):
         grp_clear = QGroupBox("B. Secure Reset & Memory Clearing Commands")
         clear_lay = QHBoxLayout(grp_clear)
         
-        self.btn_clear_functional = QPushButton("⚠️ Broad Functional Broadcast Clear (Mode 04)")
+        self.btn_clear_functional = QPushButton(" Broad Functional Broadcast Clear (Mode 04)")
+        self.btn_clear_functional.setIcon(self.style().standardIcon(QStyle.SP_MessageBoxWarning))
         self.btn_clear_functional.setObjectName("clear_btn")
         self.btn_clear_functional.clicked.connect(lambda: self._run_clear(physical=False))
         
-        self.btn_clear_physical = QPushButton("⚡ Force Sequential Physical Clear (per ECU)")
+        self.btn_clear_physical = QPushButton(" Force Sequential Physical Clear (per ECU)")
+        self.btn_clear_physical.setIcon(self.style().standardIcon(QStyle.SP_MessageBoxCritical))
         self.btn_clear_physical.setObjectName("clear_btn")
         self.btn_clear_physical.clicked.connect(lambda: self._run_clear(physical=True))
         
@@ -449,13 +458,16 @@ class VinFastDiagGUI(QMainWindow):
         layout.addWidget(QLabel("<h3>Live Parameter Logging & HVIL System Diagnostics</h3>"))
         
         row_btns = QHBoxLayout()
-        self.btn_live_once = QPushButton("📊 Single Live Data Snapshot")
+        self.btn_live_once = QPushButton(" Single Live Data Snapshot")
+        self.btn_live_once.setIcon(self.style().standardIcon(QStyle.SP_FileDialogInfoView))
         self.btn_live_once.clicked.connect(lambda: self._execute_command("live", {"once": True}))
         
-        self.btn_live_loop = QPushButton("🔄 Start Live Monitoring Loop")
+        self.btn_live_loop = QPushButton(" Start Live Monitoring Loop")
+        self.btn_live_loop.setIcon(self.style().standardIcon(QStyle.SP_BrowserReload))
         self.btn_live_loop.clicked.connect(lambda: self._execute_command("live", {"once": False}))
         
-        self.btn_hvil_loop = QPushButton("🔋 Start Fast HVIL & Pre-Charge Monitor")
+        self.btn_hvil_loop = QPushButton(" Start Fast HVIL & Pre-Charge Monitor")
+        self.btn_hvil_loop.setIcon(self.style().standardIcon(QStyle.SP_CommandLink))
         self.btn_hvil_loop.clicked.connect(lambda: self._execute_command("hvil"))
         
         row_btns.addWidget(self.btn_live_once)
@@ -463,7 +475,8 @@ class VinFastDiagGUI(QMainWindow):
         row_btns.addWidget(self.btn_hvil_loop)
         layout.addLayout(row_btns)
         
-        self.stop_loop_btn = QPushButton("⏹️ STOP Continuous Monitor Loop")
+        self.stop_loop_btn = QPushButton(" STOP Continuous Monitor Loop")
+        self.stop_loop_btn.setIcon(self.style().standardIcon(QStyle.SP_DialogCancelButton))
         self.stop_loop_btn.setStyleSheet("background-color: #5a5a65;")
         self.stop_loop_btn.setEnabled(False)
         self.stop_loop_btn.clicked.connect(self._stop_active_loop)
@@ -485,7 +498,8 @@ class VinFastDiagGUI(QMainWindow):
         layout.addWidget(QLabel("<h3>UDS Developer Scan Tools (ISO 14229)</h3>"))
         
         row_actions = QHBoxLayout()
-        self.btn_uds_discover = QPushButton("📡 Query UDS Sessions & Security Seeds (0x7E0..0x7E7)")
+        self.btn_uds_discover = QPushButton(" Query UDS Sessions & Security Seeds (0x7E0..0x7E7)")
+        self.btn_uds_discover.setIcon(self.style().standardIcon(QStyle.SP_CustomBase))
         self.btn_uds_discover.clicked.connect(lambda: self._execute_command("uds-discover"))
         row_actions.addWidget(self.btn_uds_discover)
         
@@ -501,6 +515,7 @@ class VinFastDiagGUI(QMainWindow):
         
         self.txt_out_csv = QLineEdit("")
         self.btn_browse_csv = QPushButton("Browse...")
+        self.btn_browse_csv.setIcon(self.style().standardIcon(QStyle.SP_DialogOpenButton))
         self.btn_browse_csv.clicked.connect(self._browse_csv)
         csv_row = QHBoxLayout()
         csv_row.addWidget(self.txt_out_csv)
@@ -515,10 +530,12 @@ class VinFastDiagGUI(QMainWindow):
         sniff_lay.addLayout(form)
         
         row_sniff_btns = QHBoxLayout()
-        self.btn_start_watch = QPushButton("📊 Start Live Byte Delta-Watch (can-watch)")
+        self.btn_start_watch = QPushButton(" Start Live Byte Delta-Watch (can-watch)")
+        self.btn_start_watch.setIcon(self.style().standardIcon(QStyle.SP_ArrowRight))
         self.btn_start_watch.clicked.connect(self._run_can_watch)
         
-        self.btn_start_sniffer = QPushButton("📁 Start Raw Passive Sniffer (monitor)")
+        self.btn_start_sniffer = QPushButton(" Start Raw Passive Sniffer (monitor)")
+        self.btn_start_sniffer.setIcon(self.style().standardIcon(QStyle.SP_DriveFDIcon))
         self.btn_start_sniffer.clicked.connect(self._run_sniffer)
         
         row_sniff_btns.addWidget(self.btn_start_watch)
@@ -531,7 +548,12 @@ class VinFastDiagGUI(QMainWindow):
 
     def _create_ev_tab(self) -> QWidget:
         tab = QWidget()
-        layout = QVBoxLayout(tab)
+        scroll = QtWidgets.QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QtWidgets.QFrame.NoFrame)
+        
+        content_widget = QWidget()
+        layout = QVBoxLayout(content_widget)
         
         layout.addWidget(QLabel("<h2>Standard EV Service, Assembly Recovery & Diagnostic Routines</h2>"))
         layout.addWidget(QLabel(
@@ -543,14 +565,18 @@ class VinFastDiagGUI(QMainWindow):
         # Procedure 1: Pump Purge
         grp_bleed = QGroupBox("Procedure 1: HV Battery Coolant Purge & Air Bleeding")
         bleed_lay = QVBoxLayout(grp_bleed)
+        bleed_lay.setSpacing(10)
         bleed_lay.addWidget(QLabel(
             "Forces dual pump controllers (Node 0x7E1 / 0x7E2) into active high-duty circulation mode to flush "
             "airlocks after coolant repairs. Gathers real-time 12V stability checks."
         ))
         self.chk_bleed_safe = QCheckBox("I confirm the glycol coolant reservoir is filled to MAX level to prevent pump cavitation.")
+        self.chk_bleed_safe.setStyleSheet("padding: 4px 0;")
         bleed_lay.addWidget(self.chk_bleed_safe)
         
-        self.btn_run_bleed = QPushButton("💧 Start Coolant Loop Active Bleeding")
+        self.btn_run_bleed = QPushButton(" Start Coolant Loop Active Bleeding")
+        self.btn_run_bleed.setMinimumHeight(32)
+        self.btn_run_bleed.setIcon(self.style().standardIcon(QStyle.SP_DialogYesButton))
         self.btn_run_bleed.clicked.connect(self._run_bleed)
         bleed_lay.addWidget(self.btn_run_bleed)
         layout.addWidget(grp_bleed)
@@ -558,14 +584,18 @@ class VinFastDiagGUI(QMainWindow):
         # Procedure 2: Airbag Check
         grp_airbag = QGroupBox("Procedure 2: Cabin Restraints & srs Crash Audit")
         airbag_lay = QVBoxLayout(grp_airbag)
+        airbag_lay.setSpacing(10)
         airbag_lay.addWidget(QLabel(
             "Queries the central Airbag controller (Node 0x7E3) for collision squib firing events, "
             "crash indicators, and routing locks constrained by physical impacts."
         ))
         self.chk_airbag_safe = QCheckBox("I confirm the vehicle is stationary, unoccupied, and all harness lines are clear.")
+        self.chk_airbag_safe.setStyleSheet("padding: 4px 0;")
         airbag_lay.addWidget(self.chk_airbag_safe)
         
-        self.btn_run_airbag = QPushButton("🚨 Start Airbag Firing & Crash Lock Audit")
+        self.btn_run_airbag = QPushButton(" Start Airbag Firing & Crash Lock Audit")
+        self.btn_run_airbag.setMinimumHeight(32)
+        self.btn_run_airbag.setIcon(self.style().standardIcon(QStyle.SP_MessageBoxWarning))
         self.btn_run_airbag.clicked.connect(self._run_airbag)
         airbag_lay.addWidget(self.btn_run_airbag)
         layout.addWidget(grp_airbag)
@@ -573,14 +603,18 @@ class VinFastDiagGUI(QMainWindow):
         # Procedure 3: Contactor welds and isolation resistance
         grp_bms = QGroupBox("Procedure 3: BMS Main Contactor Welds & Isolation Resistance Audit")
         bms_lay = QVBoxLayout(grp_bms)
+        bms_lay.setSpacing(10)
         bms_lay.addWidget(QLabel(
             "Queries Battery Management (Node 0x7E4) to compute structural isolation resistance (R_iso) "
             "and examine physical weld checkpoint parameters on primary battery contactors."
         ))
         self.chk_bms_safe = QCheckBox("I confirm the orange Manual Service Disconnect (MSD) is fully locked and orange HV wires are isolated.")
+        self.chk_bms_safe.setStyleSheet("padding: 4px 0;")
         bms_lay.addWidget(self.chk_bms_safe)
         
-        self.btn_run_contactor = QPushButton("⚡ Start Contactor Weld & Leakage Scan")
+        self.btn_run_contactor = QPushButton(" Start Contactor Weld & Leakage Scan")
+        self.btn_run_contactor.setMinimumHeight(32)
+        self.btn_run_contactor.setIcon(self.style().standardIcon(QStyle.SP_FileDialogInfoView))
         self.btn_run_contactor.clicked.connect(self._run_contactor)
         bms_lay.addWidget(self.btn_run_contactor)
         layout.addWidget(grp_bms)
@@ -588,20 +622,25 @@ class VinFastDiagGUI(QMainWindow):
         # Procedure 4: Emergency Neutral Force
         grp_neutral = QGroupBox("Procedure 4: Shifter SCU/GSM Emergency Override to Neutral")
         neutral_lay = QVBoxLayout(grp_neutral)
+        neutral_lay.setSpacing(10)
         neutral_lay.addWidget(QLabel(
             "Initiates electronic shifter bypass (Node 0x7E5) using UDS Service 0x2F and Service 0x31 "
             "routine controls to override park shift locks. Useful for recovery winching when vehicles are stuck."
         ))
         self.chk_neutral_safe = QCheckBox("I verify the vehicle's wheels are fully chocked to prevent immediate rollback!")
+        self.chk_neutral_safe.setStyleSheet("padding: 4px 0;")
         neutral_lay.addWidget(self.chk_neutral_safe)
         
-        self.btn_run_neutral = QPushButton("⚙️ Trigger Emergency Neutral Shift Lock Override")
+        self.btn_run_neutral = QPushButton(" Trigger Emergency Neutral Shift Lock Override")
+        self.btn_run_neutral.setMinimumHeight(32)
+        self.btn_run_neutral.setIcon(self.style().standardIcon(QStyle.SP_FileIcon))
         self.btn_run_neutral.clicked.connect(self._run_neutral)
         neutral_lay.addWidget(self.btn_run_neutral)
         layout.addWidget(grp_neutral)
 
         layout.addStretch()
-        return tab
+        scroll.setWidget(content_widget)
+        return scroll
 
     def _discover_devices(self):
         self.device_combo.clear()
