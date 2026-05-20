@@ -250,6 +250,15 @@ def cmd_doctor(args: argparse.Namespace) -> int:
         d.open()
     except j2534.J2534Error as exc:
         print(f"FAIL: PassThruOpen: {exc}")
+        if exc.code == j2534.ERR_DEVICE_NOT_CONNECTED:
+            print("\n💡 Diagnosing ERR_DEVICE_NOT_CONNECTED (0x08):")
+            print("  - The J2534 DLL loaded, but it cannot detect the physical cable over USB.")
+            print("  - Check 1: Is the Mini-VCI/XHorse hardware plugged securely into a USB port?")
+            print("  - Check 2: Try a different USB port on your PC (prefer direct USB 2.0 physical ports instead of third-party hubs).")
+            print("  - Check 3: If running inside a Virtual Machine (VMware, VirtualBox, Parallels), verify the USB device")
+            print("             is passed through/connected to the Windows guest OS rather than the host macOS.")
+            print("  - Check 4: Open Device Manager (devmgmt.msc). Is there a yellow exclamation triangle (⚠️) on a USB device?")
+            print("             If so, download and install the official VCP driver from: https://ftdichip.com/drivers/vcp-drivers/")
         return 2
     except Exception as exc:
         print(f"FAIL: PassThruOpen: {exc}")
