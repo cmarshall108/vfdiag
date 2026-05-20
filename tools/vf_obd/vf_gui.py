@@ -75,6 +75,9 @@ class CommandWorker(QThread):
             "info": vf_obd.cmd_info,
             "hvil": vf_obd.cmd_hvil,
             "uds-discover": vf_obd.cmd_uds_discover,
+            "ev-bleed": vf_obd.cmd_ev_bleed,
+            "ev-airbag": vf_obd.cmd_ev_airbag,
+            "ev-contactor": vf_obd.cmd_ev_contactor,
             "can-watch": vf_obd.cmd_can_watch,
             "live": vf_obd.cmd_live,
             "monitor": vf_obd.cmd_monitor,
@@ -301,6 +304,7 @@ class VinFastDiagGUI(QMainWindow):
         self.tabs.addTab(self._create_info_tab(), "Vehicle Identity")
         self.tabs.addTab(self._create_dtc_tab(), "DTC Fault Center")
         self.tabs.addTab(self._create_live_tab(), "Parameters & HVIL")
+        self.tabs.addTab(self._create_ev_tab(), "EV Service Procedures")
         self.tabs.addTab(self._create_uds_tab(), "UDS Developer Tools")
         top_layout.addWidget(self.tabs)
         
@@ -316,7 +320,7 @@ class VinFastDiagGUI(QMainWindow):
         self.clear_logs_btn = QPushButton("Clear Output Pane")
         self.clear_logs_btn.clicked.connect(self._clear_logs)
         self.clear_logs_btn.setStyleSheet("background-color: #3a3a45;")
-        hdr_row.addSpacer(1)
+        hdr_row.addStretch()
         hdr_row.addWidget(self.clear_logs_btn)
         console_layout.addLayout(hdr_row)
         
@@ -525,6 +529,80 @@ class VinFastDiagGUI(QMainWindow):
         layout.addStretch()
         return tab
 
+    def _create_ev_tab(self) -> QWidget:
+        tab = QWidget()
+        layout = QVBoxLayout(tab)
+        
+        layout.addWidget(QLabel("<h2>Standard EV Service, Assembly Recovery & Diagnostic Routines</h2>"))
+        layout.addWidget(QLabel(
+            "<span style='color:#e67e22;'><b>IMPORTANT ADVISORY:</b> These routines interact directly with primary "
+            "battery systems, cabin restraints, and fast-flowing cooling loops. Ensure exact compliance with high-voltage "
+            "safety procedures before triggering executions.</span>"
+        ))
+
+        # Procedure 1: Pump Purge
+        grp_bleed = QGroupBox("Procedure 1: HV Battery Coolant Purge & Air Bleeding")
+        bleed_lay = QVBoxLayout(grp_bleed)
+        bleed_lay.addWidget(QLabel(
+            "Forces dual pump controllers (Node 0x7E1 / 0x7E2) into active high-duty circulation mode to flush "
+            "airlocks after coolant repairs. Gathers real-time 12V stability checks."
+        ))
+        self.chk_bleed_safe = QCheckBox("I confirm the glycol coolant reservoir is filled to MAX level to prevent pump cavitation.")
+        bleed_lay.addWidget(self.chk_bleed_safe)
+        
+        self.btn_run_bleed = QPushButton("💧 Start Coolant Loop Active Bleeding")
+        self.btn_run_bleed.clicked.connect(self._run_bleed)
+        bleed_lay.addWidget(self.btn_run_bleed)
+        layout.addWidget(grp_bleed)
+
+        # Procedure 2: Airbag Check
+        grp_airbag = QGroupBox("Procedure 2: Cabin Restraints & srs Crash Audit")
+        airbag_lay = QVBoxLayout(grp_airbag)
+        airbag_lay.addWidget(QLabel(
+            "Queries the central Airbag controller (Node 0x7E3) for collision squib firing events, "
+            "crash indicators, and routing locks constrained by physical impacts."
+        ))
+        self.chk_airbag_safe = QCheckBox("I confirm the vehicle is stationary, unoccupied, and all harness lines are clear.")
+        airbag_lay.addWidget(self.chk_airbag_safe)
+        
+        self.btn_run_airbag = QPushButton("🚨 Start Airbag Firing & Crash Lock Audit")
+        self.btn_run_airbag.clicked.connect(self._run_airbag)
+        airbag_lay.addWidget(self.btn_run_airbag)
+        layout.addWidget(grp_airbag)
+
+        # Procedure 3: Contactor welds and isolation resistance
+        grp_bms = QGroupBox("Procedure 3: BMS Main Contactor Welds & Isolation Resistance Audit")
+        bms_lay = QVBoxLayout(grp_bms)
+        bms_lay.addWidget(QLabel(
+            "Queries Battery Management (Node 0x7E4) to compute structural isolation resistance (R_iso) "
+            "and examine physical weld checkpoint parameters on primary battery contactors."
+        ))
+        self.chk_bms_safe = QCheckBox("I confirm the orange Manual Service Disconnect (MSD) is fully locked and orange HV wires are isolated.")
+        bms_lay.addWidget(self.chk_bms_safe)
+        
+        self.btn_run_contactor = QPushButton("⚡ Start Contactor Weld & Leakage Scan")
+        self.btn_run_contactor.clicked.connect(self._run_contactor)
+        bms_lay.addWidget(self.btn_run_contactor)
+        layout.addWidget(grp_bms)
+
+        # Procedure 4: Emergency Neutral Force
+        grp_neutral = QGroupBox("Procedure 4: Shifter SCU/GSM Emergency Override to Neutral")
+        neutral_lay = QVBoxLayout(grp_neutral)
+        neutral_lay.addWidget(QLabel(
+            "Initiates electronic shifter bypass (Node 0x7E5) using UDS Service 0x2F and Service 0x31 "
+            "routine controls to override park shift locks. Useful for recovery winching when vehicles are stuck."
+        ))
+        self.chk_neutral_safe = QCheckBox("I verify the vehicle's wheels are fully chocked to prevent immediate rollback!")
+        neutral_lay.addWidget(self.chk_neutral_safe)
+        
+        self.btn_run_neutral = QPushButton("⚙️ Trigger Emergency Neutral Shift Lock Override")
+        self.btn_run_neutral.clicked.connect(self._run_neutral)
+        neutral_lay.addWidget(self.btn_run_neutral)
+        layout.addWidget(grp_neutral)
+
+        layout.addStretch()
+        return tab
+
     def _discover_devices(self):
         self.device_combo.clear()
         devs = j2534.discover_j2534_devices()
@@ -605,6 +683,10 @@ class VinFastDiagGUI(QMainWindow):
         self.btn_uds_discover.setEnabled(enabled)
         self.btn_start_watch.setEnabled(enabled)
         self.btn_start_sniffer.setEnabled(enabled)
+        self.btn_run_bleed.setEnabled(enabled)
+        self.btn_run_airbag.setEnabled(enabled)
+        self.btn_run_contactor.setEnabled(enabled)
+        self.btn_run_neutral.setEnabled(enabled)
 
     def _append_console_output(self, text: str):
         # Keeps cursor at the bottom automatically
@@ -690,6 +772,104 @@ class VinFastDiagGUI(QMainWindow):
             "id": include_list,
             "exclude_id": exclude_list
         })
+
+    def _run_bleed(self):
+        if not self.chk_bleed_safe.isChecked():
+            QMessageBox.critical(
+                self,
+                "Safety Check Incomplete",
+                "⚠️ <b>Access Denied:</b> You must acknowledge and check the safety checkbox confirming "
+                "that the glycol coolant reservoir is filled before launching pumps in order to prevent cavitation.",
+                QMessageBox.Ok
+            )
+            return
+            
+        val = QMessageBox.warning(
+            self,
+            "Confirm Coolant Loop Air Bleed Sequence",
+            "🛠️ <b>Active Procedure: Bleeding Coolant Loops</b><br><br>"
+            "This will signal the pump control nodes (0x7E1 & 0x7E2) continuously for 10 cycles.<br>"
+            "Ensure the transmission is in PARK, battery cooling lines are locked, and battery is charging/ignition READY.<br><br>"
+            "Proceed with activation?",
+            QMessageBox.Yes | QMessageBox.No,
+            QMessageBox.No
+        )
+        if val == QMessageBox.Yes:
+            self._execute_command("ev-bleed", {"yes": True})
+
+    def _run_airbag(self):
+        if not self.chk_airbag_safe.isChecked():
+            QMessageBox.critical(
+                self,
+                "SRS Restraint Safety Warning",
+                "⚠️ <b>Access Denied:</b> You must acknowledge and check the safety checkbox certifying "
+                "that nobody is touching passenger cabin restraint devices or squib wiring harnesses.",
+                QMessageBox.Ok
+            )
+            return
+            
+        val = QMessageBox.warning(
+            self,
+            "Authorise Cabin Restraints Calibration & Crash Audit",
+            "🔴 <b>Active Procedure: SRS Crash Event Deployment Check</b><br><br>"
+            "This will establish a diagnostic diagnostic session with the physical Airbag Restraints MCU (0x7E3).<br>"
+            "Do NOT wiggle or disconnect physical SRS steering wheel or dash connectors while active!<br><br>"
+            "Proceed with deployment check?",
+            QMessageBox.Yes | QMessageBox.No,
+            QMessageBox.No
+        )
+        if val == QMessageBox.Yes:
+            self._execute_command("ev-airbag", {"yes": True})
+
+    def _run_contactor(self):
+        if not self.chk_bms_safe.isChecked():
+            QMessageBox.critical(
+                self,
+                "BMS Service Safety Check",
+                "⚠️ <b>Access Denied:</b> You must acknowledge and check the safety checkbox confirming "
+                "the orange MSD (Manual Service Disconnect) switch is locked and high-voltage leads are completely un-touched.",
+                QMessageBox.Ok
+            )
+            return
+            
+        val = QMessageBox.warning(
+            self,
+            "BMS Contactor & Isolation Resistance Check",
+            "☢️ <b>DANGER: High-Voltage Contactor Stress Diagnostic</b><br><br>"
+            "This command initiates direct handshakes with Battery Management Node (0x7E4) to compute "
+            "isolation leakage ($R_{iso}$) and assess relay weld-status checkpoints.<br>"
+            "Ensure nobody is working on active components under the physical vehicle chassis.<br><br>"
+            "Authorize BMS scan?",
+            QMessageBox.Yes | QMessageBox.No,
+            QMessageBox.No
+        )
+        if val == QMessageBox.Yes:
+            self._execute_command("ev-contactor", {"yes": True})
+
+    def _run_neutral(self):
+        if not self.chk_neutral_safe.isChecked():
+            QMessageBox.critical(
+                self,
+                "Shift Lock Safety Advisory",
+                "⚠️ <b>Access Denied:</b> You must confirm and check the safety box certifying that you "
+                "have securely chocked the vehicle's wheels or hooked it to a flatbed winch before executing this park lock bypass.",
+                QMessageBox.Ok
+            )
+            return
+            
+        val = QMessageBox.warning(
+            self,
+            "Confirm Emergency Neutral Gear Shift Force",
+            "⚙️ <b>DANGER: Emergency Shifter Override Sequence</b><br><br>"
+            "This command initiates UDS service handshakes with the Shifter Control Module / Gear Shift Unit (0x7E5).<br>"
+            "We will issue Service 0x2F (InputOutputControl) and fallback routines to override transmission physical lock assemblies.<br>"
+            "<b>The vehicle WILL roll freely after success!</b><br><br>"
+            "Authorize Park lock bypass?",
+            QMessageBox.Yes | QMessageBox.No,
+            QMessageBox.No
+        )
+        if val == QMessageBox.Yes:
+            self._execute_command("ev-neutral", {"yes": True})
 
 
 def main():

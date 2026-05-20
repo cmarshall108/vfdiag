@@ -134,6 +134,9 @@ py -3-32 vf_obd.py ecu                         # scan responsive ECU Names & Cal
 py -3-32 vf_obd.py info                        # query deep module parameters (VIN, Name, CALID, CVN, Serials)
 py -3-32 vf_obd.py hvil                        # start live 12V/HV battery and pre-charge stability monitor
 py -3-32 vf_obd.py uds-discover                # scan for open physical UDS Sessions and Security Access (Seed requests)
+py -3-32 vf_obd.py ev-bleed                    # start coolant loop active pump air-bleeding procedure (Mode 2F)
+py -3-32 vf_obd.py ev-airbag                   # scan SRS restraints module (0x7E3) for collision crash incident records
+py -3-32 vf_obd.py ev-contactor                # audit high-voltage contactor weld status metrics and isolation resistance
 py -3-32 vf_obd.py can-watch 0x7E8             # track a single CAN ID payload in-place, highlighting any byte changes (*)
 py -3-32 vf_obd.py live                        # monitor standard live sensor parameters in real-time
 py -3-32 vf_obd.py live --once                 # take a single live snapshot of sensor data and exit
