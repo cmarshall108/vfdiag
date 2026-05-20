@@ -1290,6 +1290,315 @@ def cmd_ev_neutral(args: argparse.Namespace) -> int:
                     print("🛠️  Physical hardware workaround: locate the park lock mechanical override lever on top of the front drive unit.")
 
         finally:
+            # Safety clean-up: revert shifter override and close extended diagnostic session.
+            try:
+                print("\n[Safety Clean-up] Restoring shifter default control state and session...")
+                _request_and_collect(d, channel, can_id=0x7E5, payload=bytes([0x2F, 0x30, 0x11, 0x00]), expected_resp_sid=0x6F, timeout_ms=500, verbose=False)
+                _request_and_collect(d, channel, can_id=0x7E5, payload=bytes([0x10, 0x01]), expected_resp_sid=0x50, timeout_ms=500, verbose=False)
+            except Exception:
+                pass
+            d.disconnect(channel)
+    return 0
+
+
+def cmd_ev_epb(args: argparse.Namespace) -> int:
+    """Electronic Parking Brake service mode — required for retracting calipers during pad changes."""
+    print("[EV-SERVICE-PROCEDURE: EPB] Electronic Parking Brake Service Mode Toggle")
+    print("⚠️  This places the EPB actuators into service mode and retracts caliper pistons.")
+    print("⚠️  Required before replacing rear brake pads/rotors. Vehicle MUST be on a lift or jack stands.")
+    print("⚠️  After service, re-engaging EPB will auto-calibrate; verify pedal feel before driving.")
+
+    if not getattr(args, "yes", False):
+        confirm = input("Type 'EPB SERVICE' to enter parking brake service mode: ").strip()
+        if confirm != "EPB SERVICE":
+            print("Aborted.")
+            return 1
+
+    dll = _resolve_dll(args.dll)
+    with j2534.J2534(dll) as d:
+        channel = _open_obd_channel(d, verbose=args.verbose)
+        try:
+            # EPB module commonly lives on chassis subsystem node (typical 0x7E6 for body-chassis or 0x7E3 alt)
+            target = 0x7E6
+            print(f"\nStep 1: Opening Extended Session on EPB Controller (0x{target:03X})...")
+            _request_and_collect(d, channel, can_id=target, payload=bytes([0x10, 0x03]), expected_resp_sid=0x50, timeout_ms=args.timeout_ms, verbose=args.verbose)
+
+            print("Step 2: Issuing RoutineControl 0x31 01 BA01 (Enter EPB Service Mode / Retract Pistons)...")
+            resp = _request_and_collect(d, channel, can_id=target, payload=bytes([0x31, 0x01, 0xBA, 0x01]), expected_resp_sid=0x71, timeout_ms=args.timeout_ms, verbose=args.verbose)
+            if any(target + i in resp for i in range(8)):
+                print("  ✅ EPB service mode active. Pistons retracting. Wait ~10 seconds before disassembly.")
+            else:
+                print("  ⚠️ No positive response. EPB may already be retracted, or routine ID mismatched.")
+                print("  ℹ️  Alternative: try manual retraction via Service 0x2F (IOControlByIdentifier) DID 0xBA01.")
+                _request_and_collect(d, channel, can_id=target, payload=bytes([0x2F, 0xBA, 0x01, 0x03, 0x01]), expected_resp_sid=0x6F, timeout_ms=args.timeout_ms, verbose=args.verbose)
+
+        finally:
+            # Always exit service mode and return to default session before disconnecting
+            try:
+                print("\n[Safety Clean-up] Exiting EPB service mode and restoring default session...")
+                _request_and_collect(d, channel, can_id=0x7E6, payload=bytes([0x31, 0x01, 0xBA, 0x02]), expected_resp_sid=0x71, timeout_ms=500, verbose=False)
+                _request_and_collect(d, channel, can_id=0x7E6, payload=bytes([0x10, 0x01]), expected_resp_sid=0x50, timeout_ms=500, verbose=False)
+            except Exception:
+                pass
+            d.disconnect(channel)
+    return 0
+
+
+def cmd_tpms(args: argparse.Namespace) -> int:
+    """Read Tire Pressure Monitoring System sensor IDs and live pressures."""
+    print("[DIAGNOSTIC: TPMS] Reading Tire Pressure Monitoring System sensors...")
+    dll = _resolve_dll(args.dll)
+    with j2534.J2534(dll) as d:
+        channel = _open_obd_channel(d, verbose=args.verbose)
+        try:
+            # TPMS lives on body/chassis node; query via Service 0x22 DIDs
+            target = 0x7E6
+            print(f"Opening default session on TPMS/Chassis node (0x{target:03X})...")
+
+            # Standard OBD-II Mode 01 PID 0x2D doesn't cover all four tires. Use UDS.
+            tire_dids = {
+                "Front Left":  0xF1A0,
+                "Front Right": 0xF1A1,
+                "Rear Left":   0xF1A2,
+                "Rear Right":  0xF1A3,
+            }
+            print(f"\n{'Position':<14}{'Sensor ID':<14}{'Pressure':<14}{'Temperature':<14}")
+            print("-" * 60)
+            for label, did in tire_dids.items():
+                resp = _request_and_collect(
+                    d, channel, can_id=target,
+                    payload=bytes([0x22, (did >> 8) & 0xFF, did & 0xFF]),
+                    expected_resp_sid=0x62, timeout_ms=args.timeout_ms, verbose=args.verbose,
+                )
+                got = None
+                for cid in (target + 8, target + 0):
+                    if cid in resp:
+                        got = resp[cid]
+                        break
+                if got and len(got) >= 8:
+                    # Typical layout: [62 DID DID] [SensorID:4] [Pressure:1 in 0.025 bar] [Temp:1 °C offset 40]
+                    sid = got[3:7].hex().upper()
+                    p_bar = got[7] * 0.025 if len(got) > 7 else None
+                    p_psi = p_bar * 14.5038 if p_bar is not None else None
+                    temp_c = (got[8] - 40) if len(got) > 8 else None
+                    p_str = f"{p_psi:.1f} psi" if p_psi is not None else "N/A"
+                    t_str = f"{temp_c}°C" if temp_c is not None else "N/A"
+                    print(f"{label:<14}{sid:<14}{p_str:<14}{t_str:<14}")
+                else:
+                    print(f"{label:<14}{'(no resp)':<14}{'--':<14}{'--':<14}")
+            print("\nNote: If all sensors show no-response, TPMS DIDs on this VIN may use a different identifier range.")
+        finally:
+            d.disconnect(channel)
+    return 0
+
+
+def cmd_battery_soh(args: argparse.Namespace) -> int:
+    """Battery State-of-Health and cell-voltage spread analyzer."""
+    print("[DIAGNOSTIC: BATTERY SOH] HV Pack State-of-Health & Cell Spread Analyzer")
+    dll = _resolve_dll(args.dll)
+    with j2534.J2534(dll) as d:
+        channel = _open_obd_channel(d, verbose=args.verbose)
+        try:
+            target = 0x7E4  # BMS
+            print(f"Opening Extended Session on BMS Controller (0x{target:03X})...")
+            _request_and_collect(d, channel, can_id=target, payload=bytes([0x10, 0x03]), expected_resp_sid=0x50, timeout_ms=args.timeout_ms, verbose=args.verbose)
+
+            # SOH percentage (common DID 0xF015) and pack-level voltages
+            metrics = {
+                "State of Health (%)":     (0xF015, lambda b: f"{b[0]}%" if b else "N/A"),
+                "State of Charge (%)":     (0xF016, lambda b: f"{b[0]}%" if b else "N/A"),
+                "Pack Voltage (V)":        (0xF017, lambda b: f"{int.from_bytes(b[:2],'big')/10:.1f} V" if len(b) >= 2 else "N/A"),
+                "Pack Current (A)":        (0xF018, lambda b: f"{(int.from_bytes(b[:2],'big',signed=True))/10:.1f} A" if len(b) >= 2 else "N/A"),
+                "Cell Voltage Max (mV)":   (0xF019, lambda b: f"{int.from_bytes(b[:2],'big')} mV" if len(b) >= 2 else "N/A"),
+                "Cell Voltage Min (mV)":   (0xF01A, lambda b: f"{int.from_bytes(b[:2],'big')} mV" if len(b) >= 2 else "N/A"),
+                "Cell Voltage Spread (mV)":(0xF01B, lambda b: f"{int.from_bytes(b[:2],'big')} mV" if len(b) >= 2 else "N/A"),
+                "Pack Temperature Max":    (0xF01C, lambda b: f"{b[0]-40}°C" if b else "N/A"),
+                "Pack Temperature Min":    (0xF01D, lambda b: f"{b[0]-40}°C" if b else "N/A"),
+                "Total kWh Throughput":    (0xF01E, lambda b: f"{int.from_bytes(b[:4],'big')/1000:.2f} kWh" if len(b) >= 4 else "N/A"),
+            }
+            print(f"\n{'Metric':<28}{'Value':<20}")
+            print("-" * 50)
+            spread_mv = None
+            soh_pct = None
+            for label, (did, fmt) in metrics.items():
+                resp = _request_and_collect(
+                    d, channel, can_id=target,
+                    payload=bytes([0x22, (did >> 8) & 0xFF, did & 0xFF]),
+                    expected_resp_sid=0x62, timeout_ms=args.timeout_ms, verbose=args.verbose,
+                )
+                got = resp.get(target + 8) or resp.get(target)
+                body = got[3:] if got and len(got) > 3 else b""
+                value = fmt(body)
+                print(f"{label:<28}{value:<20}")
+                if "Spread" in label and len(body) >= 2:
+                    spread_mv = int.from_bytes(body[:2], "big")
+                if "Health" in label and body:
+                    soh_pct = body[0]
+
+            # Diagnostic interpretation
+            print("\n--- Interpretation ---")
+            if soh_pct is not None:
+                if soh_pct >= 90:
+                    print(f"  🟢 Battery health: EXCELLENT ({soh_pct}%)")
+                elif soh_pct >= 80:
+                    print(f"  🟢 Battery health: HEALTHY ({soh_pct}%)")
+                elif soh_pct >= 70:
+                    print(f"  🟡 Battery health: DEGRADED ({soh_pct}%) — monitor range")
+                else:
+                    print(f"  🔴 Battery health: POOR ({soh_pct}%) — consider replacement / warranty claim")
+            if spread_mv is not None:
+                if spread_mv < 30:
+                    print(f"  🟢 Cell balance: GOOD (spread {spread_mv} mV)")
+                elif spread_mv < 80:
+                    print(f"  🟡 Cell balance: MARGINAL (spread {spread_mv} mV) — run a full balance charge")
+                else:
+                    print(f"  🔴 Cell balance: POOR (spread {spread_mv} mV) — weak cell/module suspected")
+        finally:
+            try:
+                _request_and_collect(d, channel, can_id=0x7E4, payload=bytes([0x10, 0x01]), expected_resp_sid=0x50, timeout_ms=500, verbose=False)
+            except Exception:
+                pass
+            d.disconnect(channel)
+    return 0
+
+
+def cmd_charge_unlock(args: argparse.Namespace) -> int:
+    """Force-release the charge port lock when stuck (cable trapped)."""
+    print("[DIAGNOSTIC: CHARGE UNLOCK] Force-release stuck charge port lock actuator")
+    print("⚠️  Use ONLY when a charging cable is mechanically trapped and normal unlock has failed.")
+    print("⚠️  Ensure the charging session is fully terminated and HV is disengaged before releasing.")
+
+    if not getattr(args, "yes", False):
+        confirm = input("Type 'UNLOCK' to issue the charge port release: ").strip()
+        if confirm != "UNLOCK":
+            print("Aborted.")
+            return 1
+
+    dll = _resolve_dll(args.dll)
+    with j2534.J2534(dll) as d:
+        channel = _open_obd_channel(d, verbose=args.verbose)
+        try:
+            # Onboard charger / charge port controller typically on 0x7E1 or 0x7E6
+            for target in (0x7E1, 0x7E6):
+                print(f"\nAttempting unlock on node 0x{target:03X}...")
+                _request_and_collect(d, channel, can_id=target, payload=bytes([0x10, 0x03]), expected_resp_sid=0x50, timeout_ms=args.timeout_ms, verbose=args.verbose)
+                # IOControl: charge port latch actuator (DID 0xC101), Short-term adjustment 0x03, value 0x00 = unlatched
+                resp = _request_and_collect(d, channel, can_id=target, payload=bytes([0x2F, 0xC1, 0x01, 0x03, 0x00]), expected_resp_sid=0x6F, timeout_ms=args.timeout_ms, verbose=args.verbose)
+                if any(target + i in resp for i in range(8)):
+                    print(f"  ✅ Charge port lock released on 0x{target:03X}.")
+                    break
+                else:
+                    print(f"  ⚠️ Node 0x{target:03X} did not acknowledge. Trying next candidate node...")
+            else:
+                print("\n❌ No node accepted the unlock command. Physical fallback: pull the manual release cable in the rear cargo trim panel.")
+        finally:
+            try:
+                for target in (0x7E1, 0x7E6):
+                    _request_and_collect(d, channel, can_id=target, payload=bytes([0x2F, 0xC1, 0x01, 0x00]), expected_resp_sid=0x6F, timeout_ms=500, verbose=False)
+                    _request_and_collect(d, channel, can_id=target, payload=bytes([0x10, 0x01]), expected_resp_sid=0x50, timeout_ms=500, verbose=False)
+            except Exception:
+                pass
+            d.disconnect(channel)
+    return 0
+
+
+def cmd_freeze_frame(args: argparse.Namespace) -> int:
+    """Read OBD-II Mode 02 freeze-frame data (snapshot stored when DTC was triggered)."""
+    print("[DIAGNOSTIC: FREEZE FRAME] Reading Mode 02 freeze-frame snapshot data")
+    print("Captures the engine/vehicle parameters that were live at the instant the DTC was stored.\n")
+    dll = _resolve_dll(args.dll)
+    with j2534.J2534(dll) as d:
+        channel = _open_obd_channel(d, verbose=args.verbose)
+        try:
+            # Mode 02: request frozen DTC (PID 02) and several common PIDs at frame 0
+            pids = {
+                0x02: "DTC that triggered freeze",
+                0x04: "Calculated engine load (%)",
+                0x05: "Coolant / Pack temperature (°C)",
+                0x0C: "Engine RPM",
+                0x0D: "Vehicle Speed (km/h)",
+                0x11: "Throttle position (%)",
+                0x42: "Module supply voltage",
+            }
+            print(f"{'PID':<6}{'Description':<36}{'Raw Bytes':<20}")
+            print("-" * 70)
+            for pid, desc in pids.items():
+                resp = _request_and_collect(
+                    d, channel, can_id=OBD_FUNCTIONAL_REQ,
+                    payload=bytes([0x02, pid, 0x00]),
+                    expected_resp_sid=0x42, timeout_ms=args.timeout_ms, verbose=args.verbose,
+                )
+                if resp:
+                    # Print first responder
+                    cid, payload = next(iter(resp.items()))
+                    print(f"0x{pid:02X}  {desc:<36}{payload.hex(' ').upper()}")
+                else:
+                    print(f"0x{pid:02X}  {desc:<36}(no data)")
+            print("\nNote: Freeze-frame data only exists if a DTC was actively stored. Run `scan` first if empty.")
+        finally:
+            d.disconnect(channel)
+    return 0
+
+
+def cmd_readiness(args: argparse.Namespace) -> int:
+    """Read OBD-II readiness monitor status (Mode 01 PID 01) — required for state emissions."""
+    print("[DIAGNOSTIC: READINESS] Reading OBD-II readiness monitor status (Mode 01 PID 01)")
+    print("Indicates which emissions/system self-tests have completed since last DTC clear.\n")
+    dll = _resolve_dll(args.dll)
+    with j2534.J2534(dll) as d:
+        channel = _open_obd_channel(d, verbose=args.verbose)
+        try:
+            resp = _request_and_collect(
+                d, channel, can_id=OBD_FUNCTIONAL_REQ,
+                payload=bytes([0x01, 0x01]),
+                expected_resp_sid=0x41, timeout_ms=args.timeout_ms, verbose=args.verbose,
+            )
+            if not resp:
+                print("⚠️ No response. Vehicle may not support Mode 01 PID 01, or modules are offline.")
+                return 1
+
+            # PID 01 returns 4 bytes: A (MIL+DTC count), B (continuous monitors), C/D (non-continuous)
+            for cid, payload in resp.items():
+                if len(payload) < 6:
+                    continue
+                A, B, C, D = payload[2], payload[3], payload[4], payload[5]
+                mil_on = bool(A & 0x80)
+                dtc_count = A & 0x7F
+                print(f"--- Responder 0x{cid:03X} ---")
+                print(f"  MIL (Check Engine Light): {'🔴 ON' if mil_on else '🟢 OFF'}")
+                print(f"  Stored DTC count: {dtc_count}")
+                # EV-relevant continuous monitors
+                cont_monitors = {
+                    "Misfire":        (B, 0x01, 0x10),
+                    "Fuel system":    (B, 0x02, 0x20),
+                    "Components":     (B, 0x04, 0x40),
+                }
+                print("  Continuous monitors:")
+                for name, (byte, supp_mask, ready_mask) in cont_monitors.items():
+                    if byte & supp_mask:
+                        status = "🟢 READY" if not (byte & ready_mask) else "🟡 NOT READY"
+                    else:
+                        status = "— (not supported)"
+                    print(f"    {name:<14} {status}")
+                # Non-continuous (mostly N/A on pure EV but shown for completeness)
+                non_cont = {
+                    "Catalyst":          (C, 0x01, D, 0x01),
+                    "Heated catalyst":   (C, 0x02, D, 0x02),
+                    "Evap system":       (C, 0x04, D, 0x04),
+                    "Secondary air":     (C, 0x08, D, 0x08),
+                    "A/C refrigerant":   (C, 0x10, D, 0x10),
+                    "O2 sensor":         (C, 0x20, D, 0x20),
+                    "O2 sensor heater":  (C, 0x40, D, 0x40),
+                    "EGR":               (C, 0x80, D, 0x80),
+                }
+                print("  Non-continuous monitors:")
+                for name, (sb, sm, rb, rm) in non_cont.items():
+                    if sb & sm:
+                        status = "🟢 READY" if not (rb & rm) else "🟡 NOT READY"
+                    else:
+                        status = "— (n/a EV)"
+                    print(f"    {name:<18} {status}")
+        finally:
             d.disconnect(channel)
     return 0
 
@@ -1423,6 +1732,18 @@ def build_parser() -> argparse.ArgumentParser:
     sp_neutral = sub.add_parser("ev-neutral", help="Emergency electronic shift override to Neutral (unlock Park lock)")
     sp_neutral.add_argument("--yes", action="store_true", help="Skip safety rollback confirmation warning")
 
+    sp_epb = sub.add_parser("ev-epb", help="Electronic Parking Brake service mode (retract calipers for brake pad service)")
+    sp_epb.add_argument("--yes", action="store_true", help="Skip safety confirmation prompt")
+
+    sub.add_parser("tpms", help="Read TPMS sensor IDs, pressures, and temperatures for all four tires")
+    sub.add_parser("battery-soh", help="HV battery State-of-Health, SOC, pack metrics, and cell-spread analysis")
+
+    sp_chg_unlock = sub.add_parser("charge-unlock", help="Force-release stuck charge port lock actuator")
+    sp_chg_unlock.add_argument("--yes", action="store_true", help="Skip safety confirmation prompt")
+
+    sub.add_parser("freeze-frame", help="Read OBD-II Mode 02 freeze-frame snapshot at DTC trigger")
+    sub.add_parser("readiness", help="Read OBD-II readiness monitor status (Mode 01 PID 01)")
+
     sp_watch = sub.add_parser("can-watch", help="Watch payload of a single CAN ID in-place and highlight byte changes")
     sp_watch.add_argument("target_id", help="The target CAN ID to track (dec or hex starting with 0x)")
 
@@ -1477,6 +1798,12 @@ def main(argv: Optional[List[str]] = None) -> int:
         "ev-airbag": cmd_ev_airbag,
         "ev-contactor": cmd_ev_contactor,
         "ev-neutral": cmd_ev_neutral,
+        "ev-epb": cmd_ev_epb,
+        "tpms": cmd_tpms,
+        "battery-soh": cmd_battery_soh,
+        "charge-unlock": cmd_charge_unlock,
+        "freeze-frame": cmd_freeze_frame,
+        "readiness": cmd_readiness,
         "can-watch": cmd_can_watch,
         "live": cmd_live,
         "monitor": cmd_monitor,
