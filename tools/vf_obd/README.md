@@ -77,7 +77,8 @@ the **Toyota MVCI (Mongoose) J2534 pass-thru cable**. Key facts:
     `C:\Program Files (x86)\XHorse Electronics\MVCI Driver for TOYOTA TIS\MVCI32.dll`
     or
     `C:\Program Files (x86)\Toyota\MVCI\MVCI32.dll`
-- No Python package dependencies — pure standard library + `ctypes`.
+- For CLI usage, zero Python package dependencies are required (pure standard library).
+- To launch the graphical user interface, the `PyQt5` framework is required.
 
 ---
 
@@ -88,15 +89,26 @@ the **Toyota MVCI (Mongoose) J2534 pass-thru cable**. Key facts:
    driver from the Toyota MSI (not from the included CD).
 2. Merge the J2534 registry settings to automate driver auto-discovery. You can do this easily by double-clicking the raw registry file [tools/vf_obd/register_mvci32.reg](register_mvci32.reg) included in this directory. 
    - Note: If your `MVCI32.dll` driver is installed at a non-standard path, open that `.reg` file in a text editor like Notepad, adjust the `"FunctionLibrary"` fields to match your physical folder structure, save, and then execute it.
-3. Plug the cable's OBD-II end into the vehicle's J1962 port (driver-side dash, left of
-   steering column).
-4. **Wake the car**: press the brake pedal once, or open the driver door. Most modules require a wake event before they will reply on the OBD bus.
-5. From a Windows command prompt:
-
+3. Install PyQt5 package if using the dealer GUI replacement tool:
    ```cmd
-   cd path\to\vf-obd
-   py -3-32 vf_obd.py doctor
+   pip install PyQt5
    ```
+4. Plug the cable's OBD-II end into the vehicle's J1962 port (driver-side dash, left of
+   steering column).
+5. **Wake the car**: press the brake pedal once, or open the driver door. Most modules require a wake event before they will reply on the OBD bus.
+6. From a Windows command prompt:
+
+   - **For GUI Launcher (Recommended - Dark Mode Dealer Tool Replacement)**:
+     ```cmd
+     cd path\to\vf-obd
+     py -3-32 vf_gui.py
+     ```
+   
+   - **For CLI Launcher**:
+     ```cmd
+     cd path\to\vf-obd
+     py -3-32 vf_obd.py doctor
+     ```
 
    This locates the DLL, opens the device, and prints firmware/version info. Run this
    before anything else.
@@ -121,6 +133,8 @@ py -3-32 vf_obd.py clear-physical --yes        # skip physical clear prompt
 py -3-32 vf_obd.py ecu                         # scan responsive ECU Names & Calibration IDs/Versions
 py -3-32 vf_obd.py info                        # query deep module parameters (VIN, Name, CALID, CVN, Serials)
 py -3-32 vf_obd.py hvil                        # start live 12V/HV battery and pre-charge stability monitor
+py -3-32 vf_obd.py uds-discover                # scan for open physical UDS Sessions and Security Access (Seed requests)
+py -3-32 vf_obd.py can-watch 0x7E8             # track a single CAN ID payload in-place, highlighting any byte changes (*)
 py -3-32 vf_obd.py live                        # monitor standard live sensor parameters in real-time
 py -3-32 vf_obd.py live --once                 # take a single live snapshot of sensor data and exit
 py -3-32 vf_obd.py monitor                     # start passive CAN sniffer (wildcard filter on pins 6/14)
@@ -128,6 +142,15 @@ py -3-32 vf_obd.py monitor --id 0x7E8          # display ONLY target messages (e
 py -3-32 vf_obd.py monitor --exclude-id 0x100  # suppress generic high-frequency background traffic
 py -3-32 vf_obd.py monitor --out log.csv       # sniff and save all received traffic to a CSV log
 ```
+
+### Automatic Session Logging
+
+Every subcommand execution automatically generates a comprehensive date-stamped session log recording standard output, errors, full diagnostic events, and J2534 traffic details to help independent rebuilders and mechanics trace vehicle status step-by-step.
+
+Logs are written dynamically to the [tools/vf_obd/logs/](tools/vf_obd/logs) directory in the workspace:
+
+- File format: `session_YYYYMMDD_HHMMSS_<command>.log`
+- Contains details such as connection metadata, timestamps, exact bytes sent and received, and any warning indicators.
 
 ### Dynamic TOTP Password Generation
 

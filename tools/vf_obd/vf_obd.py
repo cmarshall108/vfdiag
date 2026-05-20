@@ -877,6 +877,156 @@ def cmd_clear_physical(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_uds_discover(args: argparse.Namespace) -> int:
+    dll = _resolve_dll(args.dll)
+    print("Starting physical UDS session discovery scan...")
+    print("Testing standard ISO 14229 Diagnostic Session Control (0x10) and Security Access (0x27)")
+    print("Targeting individual physical nodes 0x7E0 to 0x7E7...")
+
+    sessions_to_test = {
+        0x01: "Default Session",
+        0x03: "Extended Diagnostic Session",
+    }
+
+    with j2534.J2534(dll) as d:
+        channel = _open_obd_channel(d, verbose=args.verbose)
+        try:
+            for offset in range(8):
+                req_id = OBD_PHYSICAL_REQ_BASE + offset
+                resp_id = OBD_RESP_BASE + offset
+                print(f"\n────────────────────────────────────────────────────────")
+                print(f"📡 Node [0x{req_id:03X} -> 0x{resp_id:03X}]:")
+
+                # Test 1: Sessions
+                for sess_id, sess_name in sessions_to_test.items():
+                    print(f"  Testing Session 0x{sess_id:02X} ({sess_name})...")
+                    responses = _request_and_collect(
+                        d, channel,
+                        can_id=req_id,
+                        payload=bytes([0x10, sess_id]),
+                        expected_resp_sid=0x50,  # Positive UDS Session control SID response
+                        timeout_ms=args.timeout_ms,
+                        verbose=args.verbose,
+                    )
+
+                    if resp_id in responses:
+                        payload = responses[resp_id]
+                        if len(payload) > 1 and payload[0] == 0x50 and payload[1] == sess_id:
+                            print(f"    ✅ SUCCESS: Diagnostic Session 0x{sess_id:02X} OPENED.")
+                            # Format parameter record (p2 / p2_star timeouts) if present
+                            param_hex = payload[2:].hex().upper()
+                            if param_hex:
+                                print(f"       Session parameters: {param_hex}")
+                        else:
+                            print(f"    ❓ UNEXPECTED payload: {payload.hex(' ').upper()}")
+                    else:
+                        # Sometimes we get Negative Response (0x7F) which is not expected_resp_sid (0x50).
+                        # Let's perform a low-level check (we read raw messages up to deadline)
+                        # but request_and_collect filtered on expected_resp_sid. We manually check raw bus in verbose mode.
+                        print(f"    ❌ Refused or Unsupported (No positive response).")
+
+                # Test 2: Security Access (Seed Request)
+                print(f"  Requesting Security Access Security Level 01 Seed (service 0x27)...")
+                sec_responses = _request_and_collect(
+                    d, channel,
+                    can_id=req_id,
+                    payload=bytes([0x27, 0x01]),
+                    expected_resp_sid=0x67,  # Positive UDS Security Access SID response
+                    timeout_ms=args.timeout_ms,
+                    verbose=args.verbose,
+                )
+
+                if resp_id in sec_responses:
+                    payload = sec_responses[resp_id]
+                    if len(payload) > 1 and payload[0] == 0x67 and payload[1] == 0x01:
+                        seed_hex = payload[2:].hex().upper()
+                        print(f"    🔑 SEED ACQUIRED: {seed_hex}")
+                    else:
+                        print(f"    ❓ UNEXPECTED security payload: {payload.hex(' ').upper()}")
+                else:
+                    print(f"    🔒 Refused or locked behind Gateway / correct Session level.")
+        finally:
+            d.disconnect(channel)
+    return 0
+
+
+def cmd_can_watch(args: argparse.Namespace) -> int:
+    dll = _resolve_dll(args.dll)
+    try:
+        target_id = int(args.target_id, 16) if args.target_id.lower().startswith("0x") else int(args.target_id)
+    except ValueError:
+        sys.exit(f"Invalid reference target CAN ID: {args.target_id}")
+
+    print(f"Watching CAN ID: 0x{target_id:03X} for live payload byte updates.")
+    print("Wiggle harness connectors, modules, or sensors to observe real-time value transitions.")
+    print("Press Ctrl+C to stop.\n")
+
+    with j2534.J2534(dll) as d:
+        # Connect raw CAN
+        channel = d.connect(j2534.CAN, flags=0, baud=500000)
+        d.ioctl_clear_msg_filters(channel)
+        d.ioctl_clear_rx_buffer(channel)
+
+        # Wildcard filter
+        mask = bytes([0, 0, 0, 0])
+        pattern = bytes([0, 0, 0, 0])
+        d.start_pass_filter(channel, mask, pattern, protocol=j2534.CAN, tx_flags=0)
+
+        last_payload = None
+        last_update = time.monotonic()
+        updated_bytes_mask = []  # indices of bytes that changed on last frame
+        msg_count = 0
+
+        try:
+            while True:
+                msgs = d.read(channel, max_msgs=32, timeout_ms=100)
+                for cid, data, rx_status in msgs:
+                    if cid != target_id:
+                        continue
+                    
+                    msg_count += 1
+                    now = time.monotonic()
+                    dt = now - last_update
+                    last_update = now
+                    
+                    # Compute changes to highlight
+                    highlights = []
+                    if last_payload is not None:
+                        # Pad payload sizes to match
+                        max_len = max(len(data), len(last_payload))
+                        padded_data = data + b'\x00' * (max_len - len(data))
+                        padded_last = last_payload + b'\x00' * (max_len - len(last_payload))
+                        
+                        for idx in range(max_len):
+                            if padded_data[idx] != padded_last[idx]:
+                                highlights.append(idx)
+                    
+                    last_payload = data
+                    
+                    # Clear screen line and output payload
+                    hex_out = []
+                    for idx, byte in enumerate(data):
+                        byte_str = f"{byte:02X}"
+                        if idx in highlights:
+                            byte_str = f"*{byte_str}*"  # flag delta bytes cleanly
+                        hex_out.append(byte_str)
+                    
+                    payload_line = " ".join(hex_out)
+                    spacing = " " * (30 - len(payload_line))
+                    ascii_repr = "".join(chr(b) if 32 <= b <= 126 else "." for b in data)
+                    
+                    sys.stdout.write(
+                        f"\r[0x{target_id:03X}] Polled Freq: {1/dt:.1f}Hz | Len: {len(data)} | Data: {payload_line}{spacing} | ASCII: {ascii_repr}"
+                    )
+                    sys.stdout.flush()
+
+        except KeyboardInterrupt:
+            print(f"\nStopped watch. Captured {msg_count} target frame(s) on CAN ID 0x{target_id:03X}.")
+        finally:
+            d.disconnect(channel)
+    return 0
+
+
 # --- argparse plumbing ---------------------------------------------------------
 
 def _mode_arg(s: str) -> int:
@@ -914,6 +1064,10 @@ def build_parser() -> argparse.ArgumentParser:
     sub.add_parser("ecu", help="Read responsive ECU Names & Calibration IDs/Versions via Mode 09")
     sub.add_parser("info", help="Retrieve all module identity info (VIN, ECU Names, CALID, CVN, Serial Numbers) via Mode 09")
     sub.add_parser("hvil", help="Continuous pre-charge and 12V/HV battery loop monitor for physical troubleshooting")
+    sub.add_parser("uds-discover", help="Scan physical controllers (0x7E0..0x7E7) for open UDS Sessions & Security Access Seeds")
+
+    sp_watch = sub.add_parser("can-watch", help="Watch payload of a single CAN ID in-place and highlight byte changes")
+    sp_watch.add_argument("target_id", help="The target CAN ID to track (dec or hex starting with 0x)")
 
     sp_live = sub.add_parser("live", help="Monitor standard vehicle OBD live-data parameters")
     sp_live.add_argument("--once", action="store_true", help="Take a single snapshot and exit instead of loop")
@@ -924,6 +1078,28 @@ def build_parser() -> argparse.ArgumentParser:
     sp_monitor.add_argument("--exclude-id", action="append", help="SUPPRESS frames matching this target CAN ID (may be repeated. Prefix hex with 0x)")
 
     return p
+
+
+class TeeWriter:
+    """Helper to write back to original stdout/stderr while logging to a file."""
+    def __init__(self, stream, log_file):
+        self.stream = stream
+        self.log_file = log_file
+
+    def write(self, data: str) -> None:
+        self.stream.write(data)
+        try:
+            self.log_file.write(data)
+            self.log_file.flush()
+        except Exception:
+            pass
+
+    def flush(self) -> None:
+        self.stream.flush()
+        try:
+            self.log_file.flush()
+        except Exception:
+            pass
 
 
 def main(argv: Optional[List[str]] = None) -> int:
@@ -939,9 +1115,48 @@ def main(argv: Optional[List[str]] = None) -> int:
         "ecu": cmd_ecu,
         "info": cmd_info,
         "hvil": cmd_hvil,
+        "uds-discover": cmd_uds_discover,
+        "can-watch": cmd_can_watch,
         "live": cmd_live,
         "monitor": cmd_monitor,
     }[args.command]
+
+    # Setup automatic session logging
+    script_dir = os.path.dirname(os.path.abspath(__file__))
+    log_dir = os.path.join(script_dir, "logs")
+    try:
+        os.makedirs(log_dir, exist_ok=True)
+    except Exception:
+        # Fallback to current working directory
+        log_dir = "logs"
+        try:
+            os.makedirs(log_dir, exist_ok=True)
+        except Exception:
+            pass
+
+    timestamp = time.strftime("%Y%m%d_%H%M%S")
+    cmd_name = args.command
+    log_filename = f"session_{timestamp}_{cmd_name}.log"
+    log_filepath = os.path.join(log_dir, log_filename)
+
+    log_file = None
+    original_stdout = sys.stdout
+    original_stderr = sys.stderr
+
+    try:
+        log_file = open(log_filepath, "w", encoding="utf-8")
+        log_file.write(f"=== DIAGNOSTIC SESSION START: {time.asctime()} ===\n")
+        log_file.write(f"Command line: {' '.join(sys.argv)}\n")
+        log_file.write(f"Platform: {sys.platform}\n")
+        log_file.write(f"Python: {sys.version}\n")
+        log_file.write(f"================================================\n\n")
+        log_file.flush()
+
+        sys.stdout = TeeWriter(original_stdout, log_file)
+        sys.stderr = TeeWriter(original_stderr, log_file)
+    except Exception as exc:
+        original_stderr.write(f"Warning: Could not initialize session log file: {exc}\n")
+
     try:
         return handler(args)
     except KeyboardInterrupt:
@@ -950,6 +1165,19 @@ def main(argv: Optional[List[str]] = None) -> int:
     except j2534.J2534Error as exc:
         print(f"J2534 error: {exc}", file=sys.stderr)
         return 2
+    finally:
+        # Restore stdout/stderr
+        sys.stdout = original_stdout
+        sys.stderr = original_stderr
+        if log_file:
+            try:
+                log_file.write(f"\n================================================\n")
+                log_file.write(f"=== DIAGNOSTIC SESSION END: {time.asctime()} ===\n")
+                log_file.close()
+            except Exception:
+                pass
+            rel_log_path = os.path.normpath(os.path.join("tools", "vf_obd", "logs", log_filename))
+            print(f"\nSession log captured: {rel_log_path}")
 
 
 if __name__ == "__main__":
