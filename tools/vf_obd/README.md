@@ -1,6 +1,6 @@
-# vf8-obd — Generic OBD-II reader for the VinFast VF 8
+# vf-obd — Generic OBD-II reader for VinFast Vehicles (VF 8 / VF 9)
 
-A small, **honest-about-its-limits** Python tool that talks to your VinFast VF 8 through a
+A small, **honest-about-its-limits** Python tool that talks to your VinFast VF 8 / VF 9 through a
 **Mini-VCI J2534** cable (Amazon ASIN B0DXB8N5KH) on **Windows**, and supports:
 
 - Reading the VIN (OBD-II Mode 09 PID 02)
@@ -23,7 +23,7 @@ use this.
 This tool talks to the **emissions-legislated OBD-II bus only** (ISO 15765-4 CAN @ 500 kbps,
 broadcast on functional address `0x7DF`, responders `0x7E8–0x7EF`).
 
-On the VF 8, that bus is the legally mandated CAN segment that exits the OBD-II J1962
+On the VF 8 / VF 9, that bus is the legally mandated CAN segment that exits the OBD-II J1962
 connector at pins 6/14. Anything more interesting (BMS cell data, MCU phase currents,
 ADAS calibration, ABS module DTCs, ECU coding) sits **behind the VinFast Central Gateway**,
 which enforces **SecOC** authentication. We cannot reach those modules with a Mini-VCI
@@ -60,7 +60,7 @@ the **Toyota MVCI (Mongoose) J2534 pass-thru cable**. Key facts:
   **Do not run the included CD.** Get the MVCI driver from a clean source — see below.
 - The cable's *electrical* interface (CAN-H pin 6, CAN-L pin 14, +12V pin 16,
   GND pins 4/5) and chipset *do* support ISO 15765-4 CAN at 500 kbps, so it will
-  physically work on the VF 8's OBD bus.
+  physically work on the VF 8 & VF 9 OBD bus.
 
 ---
 
@@ -86,17 +86,16 @@ the **Toyota MVCI (Mongoose) J2534 pass-thru cable**. Key facts:
 1. Plug the Mini-VCI into a USB port. Windows should enumerate it as a serial /
    USB device. If a yellow bang appears in Device Manager, install the FTDI / MVCI
    driver from the Toyota MSI (not from the included CD).
-2. Merge the J2534 registry settings to automate driver auto-discovery. You can do this easily by double-clicking the raw registry file [tools/vf8-obd/register_mvci32.reg](tools/vf8-obd/register_mvci32.reg) included in this directory. 
+2. Merge the J2534 registry settings to automate driver auto-discovery. You can do this easily by double-clicking the raw registry file [tools/vf_obd/register_mvci32.reg](register_mvci32.reg) included in this directory. 
    - Note: If your `MVCI32.dll` driver is installed at a non-standard path, open that `.reg` file in a text editor like Notepad, adjust the `"FunctionLibrary"` fields to match your physical folder structure, save, and then execute it.
-3. Plug the cable's OBD-II end into the VF 8's J1962 port (driver-side dash, left of
+3. Plug the cable's OBD-II end into the vehicle's J1962 port (driver-side dash, left of
    steering column).
-4. **Wake the car**: press the brake pedal once, or open the driver door. Most VF 8
-   modules require a wake event before they will reply on the OBD bus.
+4. **Wake the car**: press the brake pedal once, or open the driver door. Most modules require a wake event before they will reply on the OBD bus.
 5. From a Windows command prompt:
 
    ```cmd
-   cd path\to\vf8-obd
-   py -3-32 vf8_obd.py doctor
+   cd path\to\vf-obd
+   py -3-32 vf_obd.py doctor
    ```
 
    This locates the DLL, opens the device, and prints firmware/version info. Run this
@@ -109,19 +108,25 @@ the **Toyota MVCI (Mongoose) J2534 pass-thru cable**. Key facts:
 All commands accept `--dll PATH` to override DLL auto-discovery.
 
 ```cmd
-py -3-32 vf8_obd.py doctor                 # verify driver & cable, no car needed
-py -3-32 vf8_obd.py vin                    # read VIN
-py -3-32 vf8_obd.py scan                   # read stored + pending + permanent DTCs
-py -3-32 vf8_obd.py scan --mode 03         # stored only
-py -3-32 vf8_obd.py scan --mode 07         # pending only
-py -3-32 vf8_obd.py scan --mode 0A         # permanent only
-py -3-32 vf8_obd.py clear                  # clear DTCs (Mode 04) — prompts for confirmation
-py -3-32 vf8_obd.py clear --yes            # skip prompt
-py -3-32 vf8_obd.py ecu                    # scan responsive ECU Names & Calibration IDs/Versions
-py -3-32 vf8_obd.py live                   # monitor standard live sensor parameters in real-time
-py -3-32 vf8_obd.py live --once            # take a single live snapshot of sensor data and exit
-py -3-32 vf8_obd.py monitor                # start passive CAN sniffer (wildcard filter on pins 6/14)
-py -3-32 vf8_obd.py monitor --out log.csv  # sniff and save all received traffic to a CSV log
+py -3-32 vf_obd.py doctor                      # verify driver & cable, no car needed
+py -3-32 vf_obd.py vin                         # read VIN
+py -3-32 vf_obd.py scan                        # read stored + pending + permanent DTCs
+py -3-32 vf_obd.py scan --mode 03              # stored only
+py -3-32 vf_obd.py scan --mode 07              # pending only
+py -3-32 vf_obd.py scan --mode 0A              # permanent only
+py -3-32 vf_obd.py clear                       # clear functional broadcast (Mode 04) - prompts for confirmation
+py -3-32 vf_obd.py clear --yes                 # skip functional clear prompt
+py -3-32 vf_obd.py clear-physical              # sequentially target physical clear to individual modules (0x7E0..0x7E7)
+py -3-32 vf_obd.py clear-physical --yes        # skip physical clear prompt
+py -3-32 vf_obd.py ecu                         # scan responsive ECU Names & Calibration IDs/Versions
+py -3-32 vf_obd.py info                        # query deep module parameters (VIN, Name, CALID, CVN, Serials)
+py -3-32 vf_obd.py hvil                        # start live 12V/HV battery and pre-charge stability monitor
+py -3-32 vf_obd.py live                        # monitor standard live sensor parameters in real-time
+py -3-32 vf_obd.py live --once                 # take a single live snapshot of sensor data and exit
+py -3-32 vf_obd.py monitor                     # start passive CAN sniffer (wildcard filter on pins 6/14)
+py -3-32 vf_obd.py monitor --id 0x7E8          # display ONLY target messages (e.g. from ECU 0x7E8)
+py -3-32 vf_obd.py monitor --exclude-id 0x100  # suppress generic high-frequency background traffic
+py -3-32 vf_obd.py monitor --out log.csv       # sniff and save all received traffic to a CSV log
 ```
 
 ### Dynamic TOTP Password Generation

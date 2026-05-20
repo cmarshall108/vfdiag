@@ -64,7 +64,7 @@ Primary public sources consulted in compiling this documentation set:
 ## Diagnostic Artifacts Reviewed
 
 - Autel MaxiCOM MK900-BT VinFast diagnostic report, report ID `MAXIA20260330192852`, test time `2026-03-30 19:28:52`. The report selected `VinFast / VF e34` in Autel because VF 8 was unavailable, but the vehicle under test was a 2024 VinFast VF 8. The exact DTC list extracted from the report is preserved in [18-autel-dtc-scan-2026-03-30.md](18-autel-dtc-scan-2026-03-30.md).
-- Local `vf8-obd` Python tool behavior and J2534 binding implementation in [../tools/vf8-obd](../tools/vf8-obd). This verifies what the repository tool can do through a J2534 DLL: standard ISO 15765-4 OBD requests, Mode 04 clear on responding legislated OBD modules, and passive CAN monitoring on pins 6/14. It does not verify VinFast gateway security access.
+- Local `vf-obd` Python tool behavior and J2534 binding implementation in [../tools/vf_obd](../tools/vf_obd). This verifies what the repository tool can do through a J2534 DLL: standard ISO 15765-4 OBD requests, Mode 04 clear on responding legislated OBD modules, and passive CAN monitoring on pins 6/14. It does not verify VinFast gateway security access.
 - Local diagnostic/programming synthesis in [19-diagnostic-programming-notes.md](19-diagnostic-programming-notes.md), derived from the standards listed above, the local J2534 implementation, and the observed Autel scan appendix. This file intentionally avoids publishing or guessing seed/key algorithms, SecOC keys, calibration files, or protected routine IDs.
 
 ## Notes on Accuracy

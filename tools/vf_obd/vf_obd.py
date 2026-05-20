@@ -1,5 +1,5 @@
 """
-vf8_obd.py -- generic OBD-II reader / clearer for the VinFast VF 8 via Mini-VCI.
+vf_obd.py -- generic OBD-II reader / clearer for VinFast vehicles (VF 8 / VF 9) via Mini-VCI.
 
 Subcommands:
     doctor   verify J2534 DLL loads and the cable is talking to us
@@ -224,6 +224,45 @@ def _parse_calid_payload(payload: bytes) -> List[str]:
         if calid_str:
             calids.append(calid_str)
     return calids
+
+
+def _parse_serial_payload(payload: bytes) -> Optional[str]:
+    """Extract an ECU Serial Number from Mode 09 PID 0C response."""
+    # Response framing: 49 0C <optional count-byte> <ASCII serial number bytes>
+    if len(payload) < 3 or payload[0] != 0x49 or payload[1] != 0x0C:
+        return None
+    body = payload[2:]
+    if len(body) > 0 and body[0] in (0x01, 0x02):
+        body = body[1:]
+    chars = []
+    for b in body:
+        if 32 <= b <= 126:
+            chars.append(chr(b))
+        elif b == 0:
+            break
+    res = "".join(chars).strip()
+    return res if res else None
+
+
+def _parse_cvn_payload(payload: bytes) -> List[str]:
+    """Extract Calibration Verification Numbers (CVN) from Mode 09 PID 06 response."""
+    if len(payload) < 3 or payload[0] != 0x49 or payload[1] != 0x06:
+        return []
+    first_byte = payload[2]
+    if len(payload) > 3 and first_byte < 10:  # standard OBD-II count byte
+        body = payload[3:]
+        count = first_byte
+    else:
+        body = payload[2:]
+        count = len(body) // 4
+    
+    cvns = []
+    for idx in range(count):
+        chunk = body[idx * 4 : (idx + 1) * 4]
+        if len(chunk) < 4:
+            break
+        cvns.append(chunk.hex().upper())
+    return cvns
 
 
 # --- Subcommands ---------------------------------------------------------------
@@ -461,6 +500,129 @@ def cmd_ecu(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_info(args: argparse.Namespace) -> int:
+    dll = _resolve_dll(args.dll)
+    print("Querying all available OBD-II Mode 09 vehicle and module identity parameters...")
+    print("Functional Broadcast to 0x7DF...")
+
+    with j2534.J2534(dll) as d:
+        channel = _open_obd_channel(d, verbose=args.verbose)
+        try:
+            # Gather responsiveness and ECU names first (usually standard)
+            print("\n--- 1. Querying Mode 09 PID 0A (ECU Names) ---")
+            names_resp = _request_and_collect(
+                d, channel,
+                can_id=OBD_FUNCTIONAL_REQ,
+                payload=bytes([0x09, 0x0A]),
+                expected_resp_sid=SID_RESP[0x09],
+                timeout_ms=args.timeout_ms,
+                verbose=args.verbose,
+            )
+            ecu_names: Dict[int, str] = {}
+            if names_resp:
+                for cid, payload in sorted(names_resp.items()):
+                    name = _parse_ecu_name_payload(payload)
+                    if name:
+                        ecu_names[cid] = name
+                        print(f"  [0x{cid:03X}] Name: {name}")
+                    else:
+                        print(f"  [0x{cid:03X}] Raw ECU Name: {payload.hex(' ').upper()}")
+            else:
+                print("  No ECU names returned (PID 0A unsupported or no responsive modules).")
+
+            # Query module-specific VINs
+            print("\n--- 2. Querying Mode 09 PID 02 (Module VINs) ---")
+            vin_resp = _request_and_collect(
+                d, channel,
+                can_id=OBD_FUNCTIONAL_REQ,
+                payload=bytes([0x09, 0x02]),
+                expected_resp_sid=SID_RESP[0x09],
+                timeout_ms=args.timeout_ms,
+                verbose=args.verbose,
+            )
+            if vin_resp:
+                for cid, payload in sorted(vin_resp.items()):
+                    vin = _parse_vin_payload(payload)
+                    name_str = f" ({ecu_names[cid]})" if cid in ecu_names else ""
+                    if vin:
+                        print(f"  [0x{cid:03X}]{name_str} VIN: {vin}")
+                    else:
+                        print(f"  [0x{cid:03X}]{name_str} Raw: {payload.hex(' ').upper()}")
+            else:
+                print("  No module VINs returned.")
+
+            # Query ECU Serial Numbers (Standard OBD support since 2013, commonly implemented)
+            print("\n--- 3. Querying Mode 09 PID 0C (ECU Serial Numbers) ---")
+            serial_resp = _request_and_collect(
+                d, channel,
+                can_id=OBD_FUNCTIONAL_REQ,
+                payload=bytes([0x09, 0x0C]),
+                expected_resp_sid=SID_RESP[0x09],
+                timeout_ms=args.timeout_ms,
+                verbose=args.verbose,
+            )
+            if serial_resp:
+                for cid, payload in sorted(serial_resp.items()):
+                    sn = _parse_serial_payload(payload)
+                    name_str = f" ({ecu_names[cid]})" if cid in ecu_names else ""
+                    if sn:
+                        print(f"  [0x{cid:03X}]{name_str} Serial: {sn}")
+                    else:
+                        print(f"  [0x{cid:03X}]{name_str} Raw: {payload.hex(' ').upper()}")
+            else:
+                print("  No ECU serial numbers returned.")
+
+            # Query Calibration IDs (CALID)
+            print("\n--- 4. Querying Mode 09 PID 04 (Calibration IDs) ---")
+            calid_resp = _request_and_collect(
+                d, channel,
+                can_id=OBD_FUNCTIONAL_REQ,
+                payload=bytes([0x09, 0x04]),
+                expected_resp_sid=SID_RESP[0x09],
+                timeout_ms=args.timeout_ms,
+                verbose=args.verbose,
+            )
+            if calid_resp:
+                for cid, payload in sorted(calid_resp.items()):
+                    calids = _parse_calid_payload(payload)
+                    name_str = f" ({ecu_names[cid]})" if cid in ecu_names else ""
+                    if calids:
+                        print(f"  [0x{cid:03X}]{name_str}:")
+                        for idx, cal in enumerate(calids):
+                            print(f"    - CALID {idx+1}: {cal}")
+                    else:
+                        print(f"  [0x{cid:03X}]{name_str} Raw CALID: {payload.hex(' ').upper()}")
+            else:
+                print("  No Calibration IDs returned.")
+
+            # Query Calibration Verification Numbers (CVN)
+            print("\n--- 5. Querying Mode 09 PID 06 (Calibration Verification Numbers) ---")
+            cvn_resp = _request_and_collect(
+                d, channel,
+                can_id=OBD_FUNCTIONAL_REQ,
+                payload=bytes([0x09, 0x06]),
+                expected_resp_sid=SID_RESP[0x09],
+                timeout_ms=args.timeout_ms,
+                verbose=args.verbose,
+            )
+            if cvn_resp:
+                for cid, payload in sorted(cvn_resp.items()):
+                    cvns = _parse_cvn_payload(payload)
+                    name_str = f" ({ecu_names[cid]})" if cid in ecu_names else ""
+                    if cvns:
+                        print(f"  [0x{cid:03X}]{name_str}:")
+                        for idx, cvn in enumerate(cvns):
+                            print(f"    - CVN {idx+1}: {cvn}")
+                    else:
+                        print(f"  [0x{cid:03X}]{name_str} Raw CVN: {payload.hex(' ').upper()}")
+            else:
+                print("  No Calibration Verification Numbers returned.")
+
+        finally:
+            d.disconnect(channel)
+    return 0
+
+
 def cmd_live(args: argparse.Namespace) -> int:
     dll = _resolve_dll(args.dll)
     
@@ -533,7 +695,28 @@ def cmd_monitor(args: argparse.Namespace) -> int:
         except Exception as exc:
             sys.exit(f"Failed to open log file: {exc}")
 
+    # Parse command line filter lists
+    include_ids = []
+    if args.id:
+        for item in args.id:
+            try:
+                include_ids.append(int(item, 16) if item.lower().startswith("0x") else int(item))
+            except ValueError:
+                sys.exit(f"Invalid exclude/include CAN ID: {item}")
+                
+    exclude_ids = []
+    if args.exclude_id:
+        for item in args.exclude_id:
+            try:
+                exclude_ids.append(int(item, 16) if item.lower().startswith("0x") else int(item))
+            except ValueError:
+                sys.exit(f"Invalid exclude/include CAN ID: {item}")
+
     print("Opening raw CAN monitoring channel at 500 kbps...")
+    if include_ids:
+        print(f"Filtering: ONLY showing IDs: " + ", ".join(f"0x{x:03X}" for x in include_ids))
+    if exclude_ids:
+        print(f"Filtering: SUPPRESSING IDs: " + ", ".join(f"0x{x:03X}" for x in exclude_ids))
     print("Passive sniffing mode. Wildcard filter installed. Press Ctrl+C to stop.\n")
 
     with j2534.J2534(dll) as d:
@@ -554,6 +737,12 @@ def cmd_monitor(args: argparse.Namespace) -> int:
             while True:
                 msgs = d.read(channel, max_msgs=32, timeout_ms=100)
                 for cid, data, rx_status in msgs:
+                    # Apply software filters
+                    if include_ids and (cid not in include_ids):
+                        continue
+                    if exclude_ids and (cid in exclude_ids):
+                        continue
+
                     timestamp = time.time()
                     time_str = f"{timestamp:.6f}"
                     data_hex = data.hex(" ").upper()
@@ -574,6 +763,120 @@ def cmd_monitor(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_hvil(args: argparse.Namespace) -> int:
+    dll = _resolve_dll(args.dll)
+    print("Starting Live HVIL & HV/LV Pre-Charge Loop Monitor...")
+    print("This watches pre-charge cycle parameters sequentially in a fast loop to aid module repairs.")
+    print("Queries are functional (0x7DF). Press Ctrl+C to stop.\n")
+
+    pids_to_poll = {
+        0x42: (4, lambda d: f"{(d[0]*256 + d[1])/1000:.3f} V", "12V Battery Voltage"),
+        0x5B: (3, lambda d: f"{d[0]*100/255:.1f} %", "HV Battery SoC"),
+        0x1F: (4, lambda d: f"{d[0]*256 + d[1]} sec", "ECU Run Time"),
+    }
+
+    with j2534.J2534(dll) as d:
+        channel = _open_obd_channel(d, verbose=args.verbose)
+        try:
+            start_time = time.monotonic()
+            last_v = None
+            last_soc = None
+            
+            while True:
+                elapsed = time.monotonic() - start_time
+                current_metrics = {}
+                
+                for pid, (min_len, parser, label) in pids_to_poll.items():
+                    responses = _request_and_collect(
+                        d, channel,
+                        can_id=OBD_FUNCTIONAL_REQ,
+                        payload=bytes([0x01, pid]),
+                        expected_resp_sid=SID_RESP[0x01],
+                        timeout_ms=args.timeout_ms,
+                        verbose=args.verbose,
+                    )
+                    
+                    if responses:
+                        for cid, payload in responses.items():
+                            if len(payload) >= min_len and payload[0] == 0x41 and payload[1] == pid:
+                                try:
+                                    current_metrics[label] = parser(payload[2:])
+                                except Exception:
+                                    pass
+                
+                # Check for critical stability thresholds to help diagnostics
+                alerts = []
+                if "12V Battery Voltage" in current_metrics:
+                    v_str = current_metrics["12V Battery Voltage"].split()[0]
+                    v_val = float(v_str)
+                    last_v = v_val
+                    if v_val < 11.5:
+                        alerts.append("⚠️ CRITICAL: 12V voltage is dangerously low! Auxiliary modules might drop offline.")
+                    elif v_val < 12.3:
+                        alerts.append("⚠️ WARNING: 12V battery is weak; close HV contactors to pre-charge and trigger DC-DC converter.")
+                    elif v_val > 13.5:
+                        alerts.append("🔋 DC-DC Converter ACTIVE (Aux battery charging from High-Voltage Pack).")
+
+                if elapsed > 0:
+                    status_line = f"[{elapsed:6.1f}s elapsed]"
+                    metrics_str = " | ".join(f"{k}: {v}" for k, v in current_metrics.items())
+                    if metrics_str:
+                        print(f"{status_line} -> {metrics_str}")
+                    else:
+                        print(f"{status_line} -> Bus quiet. Car asleep or IGN off?")
+                    for alert in alerts:
+                        print(f"    {alert}")
+                
+                # Fast polling rate to capture quick pre-charge attempts
+                time.sleep(0.3)
+        except KeyboardInterrupt:
+            print("\nStopped pre-charge monitor.")
+        finally:
+            d.disconnect(channel)
+    return 0
+
+
+def cmd_clear_physical(args: argparse.Namespace) -> int:
+    if not args.yes:
+        print("🚨 ADVANCED: This is a targeted PHYSICAL CAN clear.")
+        print("Instead of a single functional group address (0x7DF), this commands each")
+        print("individual diagnostic request ID (0x7E0 to 0x7E7) sequentially.")
+        print("Use this if standard clears are being blocked or ignored by the gateway/routing.")
+        confirm = input('Type "YES" to proceed: ').strip()
+        if confirm != "YES":
+            print("Aborted.")
+            return 1
+
+    dll = _resolve_dll(args.dll)
+    with j2534.J2534(dll) as d:
+        channel = _open_obd_channel(d, verbose=args.verbose)
+        try:
+            print("\nStarting physical clear sequence...")
+            # Enumerate the standard UDS physical request channels
+            for offset in range(8):
+                req_id = OBD_PHYSICAL_REQ_BASE + offset
+                resp_id = OBD_RESP_BASE + offset
+                print(f"  Sending Mode 04 physical clear to 0x{req_id:03X} (expects 0x{resp_id:03X})...")
+                
+                responses = _request_and_collect(
+                    d, channel,
+                    can_id=req_id,
+                    payload=bytes([0x04]),
+                    expected_resp_sid=SID_RESP[0x04],
+                    timeout_ms=args.timeout_ms,
+                    verbose=args.verbose,
+                )
+                
+                if resp_id in responses:
+                    print(f"    ✅ 0x{resp_id:03X}: Clear successful (Positive response 0x44)")
+                else:
+                    print(f"    ❌ 0x{resp_id:03X}: No physical response")
+        finally:
+            d.disconnect(channel)
+    print("\nPhysical clear sequence complete.")
+    return 0
+
+
 # --- argparse plumbing ---------------------------------------------------------
 
 def _mode_arg(s: str) -> int:
@@ -585,8 +888,8 @@ def _mode_arg(s: str) -> int:
 
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(
-        prog="vf8_obd",
-        description="Generic OBD-II reader/clearer for the VinFast VF 8 via Mini-VCI J2534.",
+        prog="vf_obd",
+        description="Generic OBD-II reader/clearer for VinFast vechicles (VF 8 & VF 9) via Mini-VCI J2534.",
     )
     p.add_argument("--dll", help="Path to J2534 DLL (default: auto-discover; or set MVCI_DLL env var)")
     p.add_argument("--timeout-ms", type=int, default=2000, help="Per-message read timeout (default 2000)")
@@ -605,27 +908,37 @@ def build_parser() -> argparse.ArgumentParser:
     sp_clear = sub.add_parser("clear", help="Clear DTCs via Mode 04")
     sp_clear.add_argument("--yes", action="store_true", help="Skip confirmation prompt")
 
+    sp_clear_phys = sub.add_parser("clear-physical", help="Clear DTCs via physical addressing Mode 04 (iterates 0x7E0..0x7E7)")
+    sp_clear_phys.add_argument("--yes", action="store_true", help="Skip confirmation prompt")
+
     sub.add_parser("ecu", help="Read responsive ECU Names & Calibration IDs/Versions via Mode 09")
+    sub.add_parser("info", help="Retrieve all module identity info (VIN, ECU Names, CALID, CVN, Serial Numbers) via Mode 09")
+    sub.add_parser("hvil", help="Continuous pre-charge and 12V/HV battery loop monitor for physical troubleshooting")
 
     sp_live = sub.add_parser("live", help="Monitor standard vehicle OBD live-data parameters")
     sp_live.add_argument("--once", action="store_true", help="Take a single snapshot and exit instead of loop")
 
     sp_monitor = sub.add_parser("monitor", help="Passive raw CAN bus logger (sniffer)")
     sp_monitor.add_argument("--out", help="Path to write log of received CAN frames")
+    sp_monitor.add_argument("--id", action="append", help="Show ONLY frames matching this target CAN ID (may be repeated. Prefix hex with 0x)")
+    sp_monitor.add_argument("--exclude-id", action="append", help="SUPPRESS frames matching this target CAN ID (may be repeated. Prefix hex with 0x)")
 
     return p
 
 
 def main(argv: Optional[List[str]] = None) -> int:
     if sys.platform != "win32":
-        sys.exit("vf8_obd requires Windows -- the J2534 DLL is Windows-only.")
+        sys.exit("vf_obd requires Windows -- the J2534 DLL is Windows-only.")
     args = build_parser().parse_args(argv)
     handler = {
         "doctor": cmd_doctor,
         "vin": cmd_vin,
         "scan": cmd_scan,
         "clear": cmd_clear,
+        "clear-physical": cmd_clear_physical,
         "ecu": cmd_ecu,
+        "info": cmd_info,
+        "hvil": cmd_hvil,
         "live": cmd_live,
         "monitor": cmd_monitor,
     }[args.command]

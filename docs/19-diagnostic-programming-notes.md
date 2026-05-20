@@ -6,7 +6,7 @@ This document collects VinFast-specific diagnostic and programming facts that ar
 
 | Layer | What it can do | Public/independent status |
 |-------|----------------|---------------------------|
-| Generic OBD-II on J1962 pins 6/14 | VIN, generic Mode 01 live data, Mode 03/07/0A DTC reads, Mode 04 clear on responding legislated OBD modules | Works with generic scan tools and the local `vf8-obd` J2534 script |
+| Generic OBD-II on J1962 pins 6/14 | VIN, generic Mode 01 live data, Mode 03/07/0A DTC reads, Mode 04 clear on responding legislated OBD modules | Works with generic scan tools and the local `vf-obd` J2534 script |
 | UDS over CAN / ISO 14229 | Per-module DTCs, data identifiers, routines, clears, actuator tests, session control | Module access depends on gateway routing, session level, and security access |
 | DoIP / ISO 13400 | High-bandwidth diagnostics, programming, OTA/service operations, ADAS calibration workflows | Dealer/tool dependent; not exposed as a public VF 8 programming path |
 | VinFast Diagnostic System (VDS / dealer tool) | Full module scan, programming, coding, secure routines, calibration, campaign/reflash workflows | Dealer/service-center channel; not publicly distributed as an independent-shop package |

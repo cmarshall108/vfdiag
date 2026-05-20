@@ -46,7 +46,7 @@ A consolidated technical reference for the **2024 VinFast VF 8** battery-electri
 
 ## Mini-VCI / J2534 Windows Setup
 
-The Python diagnostic helper under [tools/vf8-obd](tools/vf8-obd) can talk through a Toyota Mini-VCI / XHorse-style J2534 cable, but that cable requires a Windows driver stack before `vf8_obd.py` can load it.
+The Python diagnostic helper under [tools/vf_obd](tools/vf_obd) can talk through a Toyota Mini-VCI / XHorse-style J2534 cable, but that cable requires a Windows driver stack before `vf_obd.py` can load it.
 
 ### Install Requirements
 
@@ -73,7 +73,7 @@ HKEY_LOCAL_MACHINE\SOFTWARE\PassThruSupport.04.04
 HKEY_LOCAL_MACHINE\SOFTWARE\WOW6432Node\PassThruSupport.04.04
 ```
 
-The device entry should include a `FunctionLibrary` value pointing to `MVCI32.dll`. To automate this, you can merge our pre-configured registry script [tools/vf8-obd/register_mvci32.reg](tools/vf8-obd/register_mvci32.reg), which registers the standard drivers under BOTH WOW6432Node and standard hives.
+The device entry should include a `FunctionLibrary` value pointing to `MVCI32.dll`. To automate this, you can merge our pre-configured registry script [tools/vf_obd/register_mvci32.reg](tools/vf_obd/register_mvci32.reg), which registers the standard drivers under BOTH WOW6432Node and standard hives.
 
 Alternatively, you can manually add a registry entry like this, adjusting the path if needed:
 
@@ -94,16 +94,16 @@ Windows Registry Editor Version 5.00
 
 ### Verify the Cable
 
-From a Windows command prompt inside `tools\vf8-obd`:
+From a Windows command prompt inside `tools\vf_obd`:
 
 ```cmd
-py -3-32 vf8_obd.py doctor
+py -3-32 vf_obd.py doctor
 ```
 
 If the DLL is not auto-discovered, pass it explicitly:
 
 ```cmd
-py -3-32 vf8_obd.py doctor --dll "C:\Program Files (x86)\XHorse Electronics\MVCI Driver for TOYOTA TIS\MVCI32.dll"
+py -3-32 vf_obd.py doctor --dll "C:\Program Files (x86)\XHorse Electronics\MVCI Driver for TOYOTA TIS\MVCI32.dll"
 ```
 
 Expected result: the tool loads the DLL, opens the device, prints firmware/API versions when available, and reports OBD battery voltage. A `WinError 193` or "not a valid Win32 application" error means 64-bit Python is being used with a 32-bit DLL.
