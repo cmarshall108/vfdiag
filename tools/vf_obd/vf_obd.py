@@ -26,6 +26,8 @@ from typing import Dict, List, Optional, Tuple
 
 import dtc as dtc_mod
 import j2534
+import uds
+import obd2
 
 # --- Address plan for ISO 15765-4 OBD-II (per SAE J1979 / ISO 15031-5) --------
 
@@ -86,6 +88,30 @@ def _open_obd_channel(j: j2534.J2534, verbose: bool = False) -> int:
         if verbose:
             print(f"  filter[{fid}]: rx=0x{resp:03X}  fc-tx=0x{req:03X}")
     return channel
+
+
+def decode_uds_response(payload: bytes) -> str:
+    """Return a short human-readable description of a UDS response payload.
+
+    Recognises positive responses (SID + 0x40) and negative responses (0x7F SID NRC)
+    using the standardised tables in uds.py.
+    """
+    if not payload:
+        return "(empty response)"
+    sid = payload[0]
+    if sid == uds.NEGATIVE_RESPONSE_SID and len(payload) >= 3:
+        req_sid = payload[1]
+        nrc = payload[2]
+        return f"NegativeResponse: SID 0x{req_sid:02X} → {uds.decode_nrc(nrc)} (0x{nrc:02X})"
+    if sid & 0x40:
+        req_sid = sid - 0x40
+        return f"PositiveResponse: SID 0x{req_sid:02X}"
+    return f"RawResponse SID=0x{sid:02X}"
+
+
+def is_negative_response(payload: bytes) -> bool:
+    """True if the payload is a UDS Negative Response Indication (0x7F SID NRC)."""
+    return len(payload) >= 3 and payload[0] == uds.NEGATIVE_RESPONSE_SID
 
 
 def _request_and_collect(
@@ -1744,6 +1770,15 @@ def build_parser() -> argparse.ArgumentParser:
     sub.add_parser("freeze-frame", help="Read OBD-II Mode 02 freeze-frame snapshot at DTC trigger")
     sub.add_parser("readiness", help="Read OBD-II readiness monitor status (Mode 01 PID 01)")
 
+    # Offline reference lookups using the standardised constants tables.
+    sp_nrc = sub.add_parser("decode-nrc", help="Look up an ISO 14229-1 Negative Response Code by hex byte")
+    sp_nrc.add_argument("nrc", help="NRC byte (e.g. 0x33 or 51)")
+
+    sp_did = sub.add_parser("classify-did", help="Classify a UDS DID into its ISO 14229-1 range/category")
+    sp_did.add_argument("did", help="DID value (e.g. 0xF190 for VIN)")
+
+    sub.add_parser("ref-constants", help="Print the standardised UDS/OBD-II/J2534 constant tables this tool ships with")
+
     sp_watch = sub.add_parser("can-watch", help="Watch payload of a single CAN ID in-place and highlight byte changes")
     sp_watch.add_argument("target_id", help="The target CAN ID to track (dec or hex starting with 0x)")
 
@@ -1780,10 +1815,104 @@ class TeeWriter:
             pass
 
 
+def cmd_decode_nrc(args: argparse.Namespace) -> int:
+    """Offline lookup of an ISO 14229-1 Negative Response Code by hex byte."""
+    txt = args.nrc.strip()
+    try:
+        nrc = int(txt, 16) if txt.lower().startswith("0x") else int(txt, 0)
+    except ValueError:
+        sys.exit(f"Invalid NRC byte: {args.nrc}")
+    if not 0 <= nrc <= 0xFF:
+        sys.exit("NRC must be a single byte (0x00-0xFF)")
+    name = uds.decode_nrc(nrc)
+    print(f"NRC 0x{nrc:02X} = {name}")
+    return 0
+
+
+def cmd_classify_did(args: argparse.Namespace) -> int:
+    """Offline classification of a UDS Data Identifier into its standard range."""
+    txt = args.did.strip()
+    try:
+        did = int(txt, 16) if txt.lower().startswith("0x") else int(txt, 0)
+    except ValueError:
+        sys.exit(f"Invalid DID value: {args.did}")
+    if not 0 <= did <= 0xFFFF:
+        sys.exit("DID must be a 16-bit value (0x0000-0xFFFF)")
+    category = uds.classify_did(did)
+    print(f"DID 0x{did:04X} → {category}")
+    # If the value matches one of the ISO-named DIDs, also print the symbolic name.
+    for attr in dir(uds):
+        if attr.startswith("DID_") and getattr(uds, attr) == did:
+            print(f"  Symbolic name: {attr}")
+            break
+    return 0
+
+
+def cmd_ref_constants(args: argparse.Namespace) -> int:
+    """Print the standardised UDS / OBD-II / J2534 constant tables shipped with this tool."""
+    print("=" * 78)
+    print("Standardised diagnostic constants (sources cited in module docstrings)")
+    print("=" * 78)
+    print("\n[ISO 14229-1] UDS Service IDs:")
+    for attr in sorted(a for a in dir(uds) if a.startswith("SID_")):
+        print(f"  0x{getattr(uds, attr):02X}  {attr}")
+    print("\n[ISO 14229-1] DiagnosticSession sub-functions (Service 0x10):")
+    for attr in sorted(a for a in dir(uds) if a.startswith("SESSION_")):
+        print(f"  0x{getattr(uds, attr):02X}  {attr}")
+    print("\n[ISO 14229-1] ECUReset sub-functions (Service 0x11):")
+    for attr in sorted(a for a in dir(uds) if a.startswith("RESET_")):
+        print(f"  0x{getattr(uds, attr):02X}  {attr}")
+    print("\n[ISO 14229-1] RoutineControl sub-functions (Service 0x31):")
+    for attr in ("ROUTINE_START", "ROUTINE_STOP", "ROUTINE_REQUEST_RESULTS"):
+        print(f"  0x{getattr(uds, attr):02X}  {attr}")
+    print("\n[ISO 14229-1] IOControl inputOutputControlParameter (Service 0x2F):")
+    for attr in sorted(a for a in dir(uds) if a.startswith("IOCP_")):
+        print(f"  0x{getattr(uds, attr):02X}  {attr}")
+    print("\n[ISO 14229-1] ReadDTCInformation sub-functions (Service 0x19):")
+    for attr in sorted(a for a in dir(uds) if a.startswith("RDTC_")):
+        print(f"  0x{getattr(uds, attr):02X}  {attr}")
+    print("\n[ISO 14229-1] DTCStatusMask bits:")
+    for attr in sorted(a for a in dir(uds) if a.startswith("DTC_STATUS_")):
+        print(f"  0x{getattr(uds, attr):02X}  {attr}")
+    print("\n[ISO 14229-1] Negative Response Codes:")
+    for nrc, name in sorted(uds.NRC_NAMES.items()):
+        print(f"  0x{nrc:02X}  {name}")
+    print("\n[ISO 14229-1] Standardised Data Identifiers (0xF180-0xF19F block):")
+    for attr in sorted(a for a in dir(uds) if a.startswith("DID_") and isinstance(getattr(uds, a), int)):
+        print(f"  0x{getattr(uds, attr):04X}  {attr}")
+    print("\n[ISO 14229-1] DID range categories:")
+    for lo, hi, name in uds.DID_RANGE_MAP:
+        print(f"  0x{lo:04X}-0x{hi:04X}  {name}")
+    print("\n[ISO 14229-1] Standard RoutineIDs (Service 0x31):")
+    for attr in ("RID_ERASE_MEMORY", "RID_CHECK_PROGRAMMING_DEPENDENCIES", "RID_ERASE_MIRROR_MEMORY_DTCS"):
+        print(f"  0x{getattr(uds, attr):04X}  {attr}")
+    print("\n[SAE J1979] OBD-II Mode IDs:")
+    for attr in sorted(a for a in dir(obd2) if a.startswith("MODE_")):
+        print(f"  0x{getattr(obd2, attr):02X}  {attr}")
+    print("\n[SAE J1979] Mode 01 PIDs:")
+    for attr in sorted((a for a in dir(obd2) if a.startswith("PID_01_")), key=lambda a: getattr(obd2, a)):
+        print(f"  0x{getattr(obd2, attr):02X}  {attr}")
+    print("\n[SAE J1979] Mode 09 InfoTypes:")
+    for attr in sorted((a for a in dir(obd2) if a.startswith("INFO_09_")), key=lambda a: getattr(obd2, a)):
+        print(f"  0x{getattr(obd2, attr):02X}  {attr}")
+    print("\n[ISO 15765-4] OBD-II CAN identifiers:")
+    for attr in sorted(a for a in dir(uds) if a.startswith("OBD_")):
+        v = getattr(uds, attr)
+        print(f"  0x{v:08X}  {attr}" if v > 0xFFF else f"  0x{v:03X}       {attr}")
+    print("\n[SAE J2534-1] Error codes:")
+    for code, name in sorted(j2534.ERROR_NAMES.items()):
+        print(f"  0x{code:02X}  {name}")
+    print(f"\nWrite/flash services disabled by anti-brick policy: "
+          f"{sorted(hex(s) for s in uds.WRITE_SERVICES_DISABLED)}")
+    return 0
+
+
 def main(argv: Optional[List[str]] = None) -> int:
-    if sys.platform != "win32":
-        sys.exit("vf_obd requires Windows -- the J2534 DLL is Windows-only.")
+    # Allow offline reference lookups on any platform; only network commands need the DLL.
     args = build_parser().parse_args(argv)
+    offline_commands = {"decode-nrc", "classify-did", "ref-constants"}
+    if args.command not in offline_commands and sys.platform != "win32":
+        sys.exit("vf_obd requires Windows for live diagnostic commands -- the J2534 DLL is Windows-only.")
     handler = {
         "doctor": cmd_doctor,
         "vin": cmd_vin,
@@ -1807,6 +1936,9 @@ def main(argv: Optional[List[str]] = None) -> int:
         "can-watch": cmd_can_watch,
         "live": cmd_live,
         "monitor": cmd_monitor,
+        "decode-nrc": cmd_decode_nrc,
+        "classify-did": cmd_classify_did,
+        "ref-constants": cmd_ref_constants,
     }[args.command]
 
     # Setup automatic session logging

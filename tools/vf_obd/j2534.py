@@ -22,7 +22,10 @@ from __future__ import annotations
 import ctypes
 import os
 import sys
-import winreg  # type: ignore[import-not-found]   # Windows-only
+try:
+    import winreg  # type: ignore[import-not-found]   # Windows-only
+except ImportError:  # Non-Windows hosts: keep module importable for offline reference use
+    winreg = None  # type: ignore[assignment]
 from ctypes import (
     POINTER,
     Structure,
@@ -118,6 +121,133 @@ ERR_NOT_UNIQUE = 0x18
 ERR_INVALID_BAUDRATE = 0x19
 ERR_INVALID_DEVICE_ID = 0x1A
 
+# -----------------------------------------------------------------------------
+# Additional J2534-1 v04.04 documented constants
+# (Sources: SAE J2534-1_200412 Tables in §6 and Appendix A.)
+# -----------------------------------------------------------------------------
+
+# Additional Ioctl IDs
+ADD_TO_FUNCT_MSG_LOOKUP_TABLE                = 0x0C
+DELETE_FROM_FUNCT_MSG_LOOKUP_TABLE           = 0x0D
+READ_PROG_VOLTAGE                            = 0x0E
+
+# Additional SCONFIG parameter IDs (J2534-1_200412 Table A1)
+P1_MIN_CFG                                   = 0x06   # alias to existing P1_MIN
+P1_MAX_CFG                                   = 0x07   # alias to existing P1_MAX
+P2_MIN                                       = 0x08
+P2_MAX                                       = 0x09
+P3_MIN                                       = 0x0A
+P3_MAX                                       = 0x0B
+P4_MIN                                       = 0x0C
+P4_MAX                                       = 0x0D
+W1                                           = 0x0E
+W2                                           = 0x0F
+W3                                           = 0x10
+W4                                           = 0x11
+W5                                           = 0x12
+TIDLE                                        = 0x13
+TINIL                                        = 0x14
+TWUP                                         = 0x15
+PARITY                                       = 0x16
+BIT_SAMPLE_POINT                             = 0x17
+SYNC_JUMP_WIDTH                              = 0x18
+W0                                           = 0x19
+T1_MAX                                       = 0x1A
+T2_MAX                                       = 0x1B
+T4_MAX                                       = 0x1C
+T5_MAX                                       = 0x1D
+ISO15765_WFT_MAX                             = 0x20
+
+# Additional ConnectFlags (J2534-1_200412 §6.3 Table 13)
+ISO9141_NO_CHECKSUM_FLAG                     = 0x00000200  # alias of ISO9141_NO_CHECKSUM
+CAN_29BIT_ID_FLAG                            = 0x00000100  # alias
+
+# RxStatus bit field definitions (J2534-1_200412 Table 26)
+TX_MSG_TYPE                                  = 0x00000001
+START_OF_MESSAGE                             = 0x00000002
+RX_BREAK                                     = 0x00000004
+TX_INDICATION                                = 0x00000008
+ISO15765_PADDING_ERROR                       = 0x00000010
+ISO15765_ADDR_TYPE_RX                        = 0x00000080
+CAN_29BIT_ID_RX                              = 0x00000100
+ISO15765_FIRST_FRAME                         = 0x00000200
+
+# Additional TxFlags (J2534-1_200412 §6.3 Table 14)
+SW_CAN_HV_TX                                 = 0x00000400
+SCI_MODE                                     = 0x00400000
+SCI_TX_VOLTAGE                               = 0x00800000
+
+# PIN numbers used for FIVE_BAUD_INIT / FAST_INIT (J2534-1 §7.2)
+PIN_K_LINE                                   = 7
+PIN_L_LINE                                   = 15
+
+# Voltage targets accepted by SET_PROGRAMMING_VOLTAGE (J2534-1 §7.3)
+SHORT_TO_GROUND                              = 0xFFFFFFFE
+VOLTAGE_OFF                                  = 0xFFFFFFFF
+
+# Pin numbers for programmable voltage
+J2534_PIN_6                                  = 6
+J2534_PIN_9                                  = 9
+J2534_PIN_11                                 = 11
+J2534_PIN_12                                 = 12
+J2534_PIN_13                                 = 13
+J2534_PIN_14                                 = 14
+J2534_PIN_15                                 = 15
+
+# Numeric -> name lookup for friendly error reporting
+ERROR_NAMES = {
+    0x00: "STATUS_NOERROR",
+    0x01: "ERR_NOT_SUPPORTED",
+    0x02: "ERR_INVALID_CHANNEL_ID",
+    0x03: "ERR_INVALID_PROTOCOL_ID",
+    0x04: "ERR_NULL_PARAMETER",
+    0x05: "ERR_INVALID_IOCTL_VALUE",
+    0x06: "ERR_INVALID_FLAGS",
+    0x07: "ERR_FAILED",
+    0x08: "ERR_DEVICE_NOT_CONNECTED",
+    0x09: "ERR_TIMEOUT",
+    0x0A: "ERR_INVALID_MSG",
+    0x0B: "ERR_INVALID_TIME_INTERVAL",
+    0x0C: "ERR_EXCEEDED_LIMIT",
+    0x0D: "ERR_INVALID_MSG_ID",
+    0x0E: "ERR_DEVICE_IN_USE",
+    0x0F: "ERR_INVALID_IOCTL_ID",
+    0x10: "ERR_BUFFER_EMPTY",
+    0x11: "ERR_BUFFER_FULL",
+    0x12: "ERR_BUFFER_OVERFLOW",
+    0x13: "ERR_PIN_INVALID",
+    0x14: "ERR_CHANNEL_IN_USE",
+    0x15: "ERR_MSG_PROTOCOL_ID",
+    0x16: "ERR_INVALID_FILTER_ID",
+    0x17: "ERR_NO_FLOW_CONTROL",
+    0x18: "ERR_NOT_UNIQUE",
+    0x19: "ERR_INVALID_BAUDRATE",
+    0x1A: "ERR_INVALID_DEVICE_ID",
+}
+
+# -----------------------------------------------------------------------------
+# SAE J2534-2 (Application Layer Extensions) — documented additional protocols
+# -----------------------------------------------------------------------------
+# These constants come from SAE J2534-2_200708 §6 (added protocol IDs for EV
+# and HEV diagnostic comms). Use depends on whether the connected PassThru
+# device advertises support for them via PassThruReadVersion / capability query.
+SW_ISO15765_PS                               = 0x00008000
+ISO15765_LOGICAL_ADDRESSING                  = 0x00008000   # Tx flag bit
+SW_CAN_PS                                    = 0x00008001
+GM_UART_PS                                   = 0x00008002
+UART_ECHO_BYTE_PS                            = 0x00008003
+HONDA_DIAGH_PS                               = 0x00008004
+J1939_PS                                     = 0x00008005
+J1708_PS                                     = 0x00008006
+TP2_0_PS                                     = 0x00008007
+FT_CAN_PS                                    = 0x00008008
+FT_ISO15765_PS                               = 0x00008009
+# J2534-2 v04 (2008-07) additionally defines:
+DT_CAN_PS                                    = 0x0000800A    # Dual-wire low-speed CAN
+DT_ISO15765_PS                               = 0x0000800B
+SW_CAN_ISO15765                              = 0x0000800C
+# -----------------------------------------------------------------------------
+
 # Message payload size (per J2534-1: 4128 bytes max)
 _MSG_DATA_SIZE = 4128
 
@@ -154,7 +284,7 @@ class J2534Error(RuntimeError):
 _PASSTHRU_REGISTRY_ROOTS = (
     (winreg.HKEY_LOCAL_MACHINE, r"SOFTWARE\PassThruSupport.04.04"),
     (winreg.HKEY_LOCAL_MACHINE, r"SOFTWARE\WOW6432Node\PassThruSupport.04.04"),
-)
+) if winreg is not None else ()
 
 
 def discover_j2534_devices() -> List[Tuple[str, str]]:
