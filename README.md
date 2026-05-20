@@ -73,7 +73,9 @@ HKEY_LOCAL_MACHINE\SOFTWARE\PassThruSupport.04.04
 HKEY_LOCAL_MACHINE\SOFTWARE\WOW6432Node\PassThruSupport.04.04
 ```
 
-The device entry should include a `FunctionLibrary` value pointing to `MVCI32.dll`. If the installer does not create it, add a registry entry like this, adjusting the path if needed:
+The device entry should include a `FunctionLibrary` value pointing to `MVCI32.dll`. To automate this, you can merge our pre-configured registry script [tools/vf8-obd/register_mvci32.reg](tools/vf8-obd/register_mvci32.reg), which registers the standard drivers under BOTH WOW6432Node and standard hives.
+
+Alternatively, you can manually add a registry entry like this, adjusting the path if needed:
 
 ```registry
 Windows Registry Editor Version 5.00

@@ -1,0 +1,101 @@
+Windows Registry Editor Version 5.00
+
+; ============================================================================
+; J2534 Registry Registration for Toyota/XHorse Mini-VCI (MVCI32.dll)
+;
+; This registry file registers the standard Mini-VCI driver so that 
+; standard Windows J2534 tools (and our Python diagnostics tool) can 
+; auto-discover the PassThru library interface.
+;
+; It registers configurations under both:
+; 1) 32-bit registry key on 64-bit Windows (WOW6432Node) - MOST COMMON
+; 2) Standard 32-bit registry key (native path)
+;
+; IMPORTANT: By default, this registers the driver path to:
+; "C:\Program Files (x86)\XHorse Electronics\MVCI Driver for TOYOTA TIS\MVCI32.dll"
+;
+; If your MVCI32.dll is located elsewhere (e.g. "C:\Program Files (x86)\Toyota\MVCI\MVCI32.dll"),
+; open this file in a text editor like Notepad and modify "FunctionLibrary" paths below before running!
+; (Note: use double backslashes "\\" in the registry path, e.g. "C:\\Folder\\MVCI32.dll")
+; ============================================================================
+
+; ----------------------------------------------------------------------------
+; 1. 32-Bit Registry Space (for 32-bit applications running on 64-bit Windows)
+; ----------------------------------------------------------------------------
+
+[HKEY_LOCAL_MACHINE\SOFTWARE\WOW6432Node\PassThruSupport.04.04]
+
+[HKEY_LOCAL_MACHINE\SOFTWARE\WOW6432Node\PassThruSupport.04.04\XHorse - MVCI]
+"Name"="XHorse - MVCI"
+"Vendor"="XHorse - Electronics"
+"ConfigApplication"=""
+"FunctionLibrary"="C:\\Program Files (x86)\\XHorse Electronics\\MVCI Driver for TOYOTA TIS\\MVCI32.dll"
+"APIVersion"="04.04"
+"CAN"=dword:00000001
+"ISO15765"=dword:00000001
+"ISO9141"=dword:00000001
+"ISO14230"=dword:00000001
+"J1850VPW"=dword:00000000
+"J1850PWM"=dword:00000000
+"SCI_A_ENGINE"=dword:00000000
+"SCI_A_TRANS"=dword:00000000
+"SCI_B_ENGINE"=dword:00000000
+"SCI_B_TRANS"=dword:00000000
+
+; Alternating Standard Toyota path entry (if installed as a direct Toyota MVCI unit)
+[HKEY_LOCAL_MACHINE\SOFTWARE\WOW6432Node\PassThruSupport.04.04\Toyota - MVCI]
+"Name"="Toyota - MVCI"
+"Vendor"="Toyota"
+"ConfigApplication"=""
+"FunctionLibrary"="C:\\Program Files (x86)\\Toyota\\MVCI\\MVCI32.dll"
+"APIVersion"="04.04"
+"CAN"=dword:00000001
+"ISO15765"=dword:00000001
+"ISO9141"=dword:00000001
+"ISO14230"=dword:00000001
+"J1850VPW"=dword:00000000
+"J1850PWM"=dword:00000000
+"SCI_A_ENGINE"=dword:00000000
+"SCI_A_TRANS"=dword:00000000
+"SCI_B_ENGINE"=dword:00000000
+"SCI_B_TRANS"=dword:00000000
+
+; ----------------------------------------------------------------------------
+; 2. Native 32-Bit Registry Space (for native 32-bit OS or native 64-bit paths)
+; ----------------------------------------------------------------------------
+
+[HKEY_LOCAL_MACHINE\SOFTWARE\PassThruSupport.04.04]
+
+[HKEY_LOCAL_MACHINE\SOFTWARE\PassThruSupport.04.04\XHorse - MVCI]
+"Name"="XHorse - MVCI"
+"Vendor"="XHorse - Electronics"
+"ConfigApplication"=""
+"FunctionLibrary"="C:\\Program Files (x86)\\XHorse Electronics\\MVCI Driver for TOYOTA TIS\\MVCI32.dll"
+"APIVersion"="04.04"
+"CAN"=dword:00000001
+"ISO15765"=dword:00000001
+"ISO9141"=dword:00000001
+"ISO14230"=dword:00000001
+"J1850VPW"=dword:00000000
+"J1850PWM"=dword:00000000
+"SCI_A_ENGINE"=dword:00000000
+"SCI_A_TRANS"=dword:00000000
+"SCI_B_ENGINE"=dword:00000000
+"SCI_B_TRANS"=dword:00000000
+
+[HKEY_LOCAL_MACHINE\SOFTWARE\PassThruSupport.04.04\Toyota - MVCI]
+"Name"="Toyota - MVCI"
+"Vendor"="Toyota"
+"ConfigApplication"=""
+"FunctionLibrary"="C:\\Program Files (x86)\\Toyota\\MVCI\\MVCI32.dll"
+"APIVersion"="04.04"
+"CAN"=dword:00000001
+"ISO15765"=dword:00000001
+"ISO9141"=dword:00000001
+"ISO14230"=dword:00000001
+"J1850VPW"=dword:00000000
+"J1850PWM"=dword:00000000
+"SCI_A_ENGINE"=dword:00000000
+"SCI_A_TRANS"=dword:00000000
+"SCI_B_ENGINE"=dword:00000000
+"SCI_B_TRANS"=dword:00000000

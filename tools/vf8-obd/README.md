@@ -86,9 +86,8 @@ the **Toyota MVCI (Mongoose) J2534 pass-thru cable**. Key facts:
 1. Plug the Mini-VCI into a USB port. Windows should enumerate it as a serial /
    USB device. If a yellow bang appears in Device Manager, install the FTDI / MVCI
    driver from the Toyota MSI (not from the included CD).
-2. Verify the J2534 registry entry exists. Open `regedit` and check
-   `HKEY_LOCAL_MACHINE\SOFTWARE\PassThruSupport.04.04\` for an entry like
-   `XHorse - MVCI` or `MVCI Driver`. The `FunctionLibrary` value points at the DLL.
+2. Merge the J2534 registry settings to automate driver auto-discovery. You can do this easily by double-clicking the raw registry file [tools/vf8-obd/register_mvci32.reg](tools/vf8-obd/register_mvci32.reg) included in this directory. 
+   - Note: If your `MVCI32.dll` driver is installed at a non-standard path, open that `.reg` file in a text editor like Notepad, adjust the `"FunctionLibrary"` fields to match your physical folder structure, save, and then execute it.
 3. Plug the cable's OBD-II end into the VF 8's J1962 port (driver-side dash, left of
    steering column).
 4. **Wake the car**: press the brake pedal once, or open the driver door. Most VF 8
