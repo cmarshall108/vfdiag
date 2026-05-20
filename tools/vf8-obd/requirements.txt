@@ -1,0 +1,9 @@
+# No third-party dependencies.
+#
+# vf8-obd is pure Python standard library:
+#   - ctypes  (J2534 DLL binding)
+#   - winreg  (J2534 device discovery)
+#   - argparse, os, sys, time, typing
+#
+# Requires Python 3.9+ and, because the Toyota MVCI driver ships MVCI32.dll
+# only, 32-bit Python on Windows.
